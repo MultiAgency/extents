@@ -5,7 +5,8 @@ import type { Dao } from "../shared/attest.ts";
 import { NETWORK, objectiveCodeHash, TOKEN, VERIFIER } from "../shared/config.ts";
 import { readLaunchDocuments } from "./fastdata.ts";
 import { initState, objectiveAccountId, validateParams, type Params } from "../shared/params.ts";
-import { query, RpcReadError, view } from "./rpc.ts";
+import { query, RPC_READ_MS, RpcReadError, view } from "./rpc.ts";
+import { withTimeout } from "./bounded.ts";
 
 export async function accountExists(accountId: string, signal?: AbortSignal): Promise<boolean> {
   try {
@@ -60,19 +61,26 @@ export async function sputnikDao(accountId: string, signal?: AbortSignal): Promi
 /** An objective as the app shows it: on-chain state, its verified documents, and its evaluator if a DAO. */
 export async function describeObjective(accountId: string, signal?: AbortSignal) {
   accountSchema.parse(accountId);
-  const [state, documents, balance] = await Promise.all([
-    viewObjective(accountId, signal),
-    readLaunchDocuments(accountId, objectiveCodeHash(), signal),
-    verifierBalance(accountId, signal),
-  ]);
-  const evaluator_dao = documents ? await sputnikDao(documents.params.evaluator, signal) : undefined;
-  return {
-    deployed: state !== undefined,
-    state,
-    documents,
-    verifier_balance: balance.toString(),
-    ...(evaluator_dao ? { evaluator_dao } : {}),
-  };
+  const work = new AbortController();
+  const deadline = withTimeout(signal ? AbortSignal.any([signal, work.signal]) : work.signal, RPC_READ_MS);
+  try {
+    const [state, documents, balance] = await Promise.all([
+      viewObjective(accountId, deadline),
+      readLaunchDocuments(accountId, objectiveCodeHash(), deadline),
+      verifierBalance(accountId, deadline),
+    ]);
+    const evaluator_dao = documents ? await sputnikDao(documents.params.evaluator, deadline) : undefined;
+    return {
+      deployed: state !== undefined,
+      state,
+      documents,
+      verifier_balance: balance.toString(),
+      ...(evaluator_dao ? { evaluator_dao } : {}),
+    };
+  } finally {
+    // A failed dependency must not leave sibling network reads running after the response ends.
+    work.abort();
+  }
 }
 
 function deployer(): { near: Near; accountId: string } {

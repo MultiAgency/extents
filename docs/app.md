@@ -123,6 +123,11 @@ share a separate budget of 10 per hour and one concurrent operation. Evidence tr
 connections and 10,000 requests per hour, pins public DNS at connection time, validates redirects and caps streamed
 bodies at 2 MiB. Model outages, ambiguous answers, unavailable evidence and archive failures produce skipped checks.
 
+Chain reads use finalized state, a 15-second deadline and a 4 MiB response cap. Run cancellation reaches chain and
+evidence requests; closing an event stream cancels its work. Evidence waits for a connection before admission, and
+criteria in one run share the exact bytes fetched from the same URL. Numeric source checks compare complete parsed
+numbers, including grouped and scientific notation, rather than substrings.
+
 These limits are per process, reset on restart, and are service ceilings rather than authenticated account quotas.
 Multi-process/public deployments need equivalent shared gateway limits and restricted network egress. The private
 archive defaults to `app/var/evidence` with a 256 MiB ceiling; set `EVIDENCE_ARCHIVE_DIR` to private persistent storage.
@@ -140,6 +145,10 @@ them is still matched to its committed hash, without parsing, and marked unsuppo
 evaluation refuse to run on it. FastData reads stream against a 4 MiB page cap and 16 MiB
 across pages, and delivery-proof transactions against 4 MiB, before anything is parsed. Canonical JSON refuses lone
 surrogates, which have no UTF-8 form and so no hash.
+
+Document discovery requests only the Params key; spec and report reads also name the authorized writer. Verified
+immutable Params/spec pairs are cached per process by objective address and code hash, capped at 16 MiB and 256
+entries. Cached terms remain available during an indexer outage; cold discovery still requires the indexer.
 
 A DAO evaluator's attestation is filed once: the page searches the DAO's proposals for an open or approved one making
 the exact `ob_attest` call, and a marker persisted before signing, held under a Web Lock, blocks a second filing and

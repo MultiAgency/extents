@@ -134,12 +134,15 @@ export function runEvaluation(input: RunAgentInput, deps: CheckRunDeps): AsyncGe
     } catch (e) {
       throw new Refusal(e instanceof Error ? e.message : String(e));
     }
-    await deps.checks.archive?.(new TextEncoder().encode(canonicalize(spec)));
-    for (const report of delivered) await deps.checks.archive?.(new TextEncoder().encode(report.text));
+    const archive = deps.checks.archive;
+    if (archive) {
+      await abortable(deps.signal, () => archive(new TextEncoder().encode(canonicalize(spec))));
+      for (const report of delivered) await abortable(deps.signal, () => archive(new TextEncoder().encode(report.text)));
+    }
     const results = yield* streamChecks(spec, { text: judgedText(delivered) }, deps);
     deps.signal?.throwIfAborted();
     const review = buildReview(objective, spec, delivered, results);
-    if (review) await deps.checks.archive?.(new TextEncoder().encode(canonicalize(review)));
+    if (review && archive) await abortable(deps.signal, () => archive(new TextEncoder().encode(canonicalize(review))));
     // params and the evaluator DAO ride along so a caller preparing the attestation needn't read the objective again
     return { summary: summarize(results), delivered, params, ...(evaluator_dao ? { evaluator_dao } : {}), ...(review ? { review } : {}) };
   });

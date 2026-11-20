@@ -43,6 +43,8 @@ const MAX_TX_BYTES = 4 * 1024 * 1024;
 
 /** Exact server-side filters keep unrelated keys and writers out of the read budget. */
 async function* latest(objective: string, query: { key: string; predecessor?: string }, signal?: AbortSignal): AsyncGenerator<Row[]> {
+  accountId.parse(objective);
+  if (query.predecessor) accountId.parse(query.predecessor);
   const deadline = withTimeout(signal, 15_000);
   let rows = 0;
   let page_token: string | undefined;
