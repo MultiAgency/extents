@@ -146,6 +146,12 @@ describe("customer agent", () => {
     );
   });
 
+  test("the instructions let the customer judge their own objective, but never work on it", () => {
+    const text = instructions(ACCOUNT, "2026-11-20T00:00:00Z");
+    expect(text).toContain("The customer may be the evaluator");
+    expect(text).toContain("the customer is never a contributor");
+  });
+
   test("the instructions say only the customer funds", () => {
     expect(instructions(ACCOUNT, "2026-11-20T00:00:00Z")).toMatch(/Only the customer funds: contributors and the evaluator need no USDC/);
   });

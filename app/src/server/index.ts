@@ -1,4 +1,4 @@
-/** One Bun process: the built web app at `/`, the API at `/api/*`, MCP at `/mcp`. */
+/** One Bun process: the built web app at `/`, the API at `/api/*`. */
 import { join } from "node:path";
 
 import { createApp } from "./app.ts";
@@ -52,7 +52,7 @@ Bun.serve({
   maxRequestBodySize: 256 * 1024,
   async fetch(req) {
     const { pathname } = new URL(req.url);
-    if (pathname.startsWith("/api/") || pathname === "/mcp") return app.fetch(req);
+    if (pathname.startsWith("/api/")) return app.fetch(req);
     const path = join(dist, pathname === "/" ? "index.html" : pathname);
     const file = Bun.file(path);
     // the SPA's own routes fall back to index.html; nothing outside dist is served

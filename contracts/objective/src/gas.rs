@@ -36,4 +36,15 @@ impl Params {
             .saturating_add(RESOLVE_TRANSFERS)
             .saturating_add(ATTEST_EXECUTION)
     }
+
+    /// Gas to attach to `ob_close`. Its worst case retries every payout, as
+    /// `ob_attest` sends them, then reads the objective's Verifier balance
+    /// and, at zero, deletes the account: [`Self::attest_gas`] plus the
+    /// balance read and its callback.
+    #[must_use]
+    pub fn close_gas(&self) -> Gas {
+        self.attest_gas()
+            .saturating_add(MT_BALANCE_OF)
+            .saturating_add(RESOLVE_BALANCE)
+    }
 }

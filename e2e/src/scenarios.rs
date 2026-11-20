@@ -383,6 +383,34 @@ impl Instance<'_, '_> {
             .await
     }
 
+    /// Gives `receiver`, a DAO treasury that will sponsor, `amount` of the
+    /// token on the Verifier, from the e2e sponsor.
+    async fn give(&mut self, who: &str, receiver: &AccountId, amount: u128) -> Result<()> {
+        let sponsor = self.ctx.accounts.sponsor.clone();
+        let call = Call {
+            receiver: self.ctx.chain.verifier.clone(),
+            method: "mt_transfer",
+            args: json!({
+                "receiver_id": receiver,
+                "token_id": self.ctx.chain.token,
+                "amount": amount.to_string(),
+            }),
+            gas: Gas::from_tgas(30),
+            deposit: ONE_YOCTO,
+        };
+        let tx = self
+            .call(
+                &format!("give {who} the amount on the Verifier"),
+                &sponsor,
+                &call,
+            )
+            .await?;
+        if !tx.ok {
+            bail!("giving {who} the amount: {:?}", tx.error);
+        }
+        Ok(())
+    }
+
     /// Commits and delivers as `contributor`, as an achieved verdict
     /// requires of every slot.
     async fn take_part(&mut self, contributor: &AccountId) -> Result<()> {
@@ -1131,29 +1159,8 @@ async fn dao_objective(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     params.evaluator = dao.id.as_str().parse()?;
     params.deadline = Timestamp::now() + DAO_DEADLINE_IN;
     let mut ob = ctx.deploy(run, params, NearToken::ZERO).await?;
-    let (sponsor, verifier, token) = (
-        ob.ctx.accounts.sponsor.clone(),
-        ob.ctx.chain.verifier.clone(),
-        ob.ctx.chain.token.clone(),
-    );
-
-    // The DAO's treasury on the Verifier.
-    let tx = ob
-        .call(
-            "give the DAO the amount on the Verifier",
-            &sponsor,
-            &Call {
-                receiver: verifier.clone(),
-                method: "mt_transfer",
-                args: json!({ "receiver_id": dao.id, "token_id": token, "amount": AMOUNT.to_string() }),
-                gas: Gas::from_tgas(30),
-                deposit: ONE_YOCTO,
-            },
-        )
-        .await?;
-    if !tx.ok {
-        bail!("funding the DAO: {:?}", tx.error);
-    }
+    let token = ob.ctx.chain.token.clone();
+    ob.give("the DAO", &dao.id, AMOUNT).await?;
 
     // Fund: the DAO's own `mt_transfer_call`, by proposal.
     let call = ob.objective.fund(AMOUNT);
@@ -1212,6 +1219,7 @@ async fn dao_intent_objective(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     params.evaluator = account.as_str().parse()?;
     params.deadline = Timestamp::now() + DAO_DEADLINE_IN;
     let mut ob = ctx.deploy(run, params, NearToken::ZERO).await?;
+    ob.give("the DAO's account", &account, AMOUNT).await?;
 
     // Fund: a transfer to the objective that notifies it with the fund
     // message, so the Verifier calls `mt_on_transfer` with the DAO as sender.

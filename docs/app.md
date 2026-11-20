@@ -19,7 +19,7 @@ Extents uses Bun and Hono for the API, React and rsbuild for the browser, and NE
 | Path | Holds |
 | --- | --- |
 | `app/src/shared/` | `Params` and the objective address, spec and review hashing, canonical JSON, objective building, reviews, attestation calls, config |
-| `app/src/server/` | Hono routes, the NEAR AI model adapter, the customer agent loop and its tools, the checks and the verified judge, chain and FastData reads, MCP, the `StateInit` deploy |
+| `app/src/server/` | Hono routes, the NEAR AI model adapter, the customer agent loop and its tools, the checks and the verified judge, chain and FastData reads, the agent API, the `StateInit` deploy |
 | `app/src/web/` | The chat, the objective plat, the objective page, the wallet |
 | `app/test/` | Contract and spec vectors, the agent loop against a scripted model, browser tests against a scripted NEAR AI endpoint |
 
@@ -89,9 +89,10 @@ be checked against the same bytes. There is no replay tool yet. Draft checks do 
 
 ## For agents
 
-- `/mcp`: an MCP server (stateless, streamable HTTP) with the agent's tools plus `draft_objective` (exact `Params`,
-  address and unsigned transactions), `deploy_objective`, and `evaluate_objective` (the review and the unsigned calls
-  that publish and attest it, or propose it to a DAO evaluator). Agents prepare; wallets and DAOs sign.
+- The agent API, plain JSON: `POST /api/tools/:name` (the customer agent's tools), `POST /api/draft` (exact `Params`,
+  address, page and unsigned transactions), `POST /api/deploy`, and `POST /api/objective/:id/review` (the review and the
+  unsigned calls that publish and attest it, or propose it to a DAO evaluator). Agents prepare; wallets and DAOs sign.
+  Every answer about an objective links its page, `/o/<objective>`, where people act in their own wallets.
 - `/llms.txt` and `/skill.md`: the protocol and the launch and evaluation recipes, for agents and coding assistants.
 - `/api/agent`: the customer agent itself, for any AG-UI client.
 
@@ -115,8 +116,8 @@ deletes only once accounted payouts have settled and the Verifier balance is zer
 
 ## Resource and release controls
 
-Every API and MCP request holds one of four concurrent response slots until its response is consumed. Costly work
-(an agent run, checks, an evaluation, a deploy, and MCP's `evaluate_objective` and `deploy_objective`) also spends one
+Every API request holds one of four concurrent response slots until its response is consumed. Costly work
+(an agent run, checks, an evaluation or review, and a deploy) also spends one
 of 200 per hour, charged only once its input is valid; reads spend nothing. The body limit is 256 KiB;
 agent runs have 12 steps, a two-minute deadline and 4,096 output tokens per model step. Production deployment calls
 share a separate budget of 10 per hour and one concurrent operation. Evidence transport permits eight concurrent

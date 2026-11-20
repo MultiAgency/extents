@@ -44,6 +44,7 @@ The contract stores commitments, not documents. The app publishes reports in pla
 delivery receipts. Specs and reviews have shared Rust/TypeScript vectors. Model receipts verify
 provider signatures, not TEE execution or the truth of a real-world claim. See documents.md.
 
-Gas figures scheduled by settlement live in `gas.rs`; callers use `Params::attest_gas`.
-Close currently uses a 300 Tgas ceiling. Changes to payout recovery or close's gas policy require
-separate implementation and sandbox evidence.
+Gas figures scheduled by settlement live in `gas.rs`; callers use `Params::attest_gas` and
+`Params::close_gas` (the attest budget plus the balance read and its callback, for a close that
+retries every payout and deletes). Changes to payout recovery or either rule need sandbox evidence:
+the suite attaches exactly these figures.

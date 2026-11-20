@@ -1,9 +1,9 @@
 /**
  * Every call the app has a wallet or DAO sign, built in one place: the page
- * signs these, and MCP hands the same objects to agents as unsigned
+ * signs these, and the agent API hands the same objects to agents as unsigned
  * transactions, so the two can't drift apart in method, arguments or gas.
  */
-import { attestArgs, attestProposal, attestTgas, type Attestation } from "./attest.ts";
+import { attestArgs, attestProposal, attestTgas, closeTgas, type Attestation } from "./attest.ts";
 import { DOCUMENT_KEYS, FASTDATA_METHOD, type DocumentName } from "./config.ts";
 import type { Params } from "./params.ts";
 
@@ -17,7 +17,7 @@ export interface Call {
   yocto?: bigint;
 }
 
-/** Gas for each call that isn't sized by its Params; `ob_attest` is (`attestTgas`). */
+/** Gas for each call that isn't sized by its Params; `ob_attest` and `ob_close` are (`attestTgas`, `closeTgas`). */
 const TGAS = {
   publish: 20,
   fund: 100,
@@ -25,8 +25,6 @@ const TGAS = {
   commit: 10,
   deliver: 10,
   propose: 50,
-  // a close may retry every payout, read the balance and delete the account
-  close: 300,
 } as const;
 
 /** `params.token` is `nep245:<verifier>:<token id on it>`. */
@@ -86,7 +84,12 @@ export const calls = {
     yocto: BigInt(bond),
   }),
 
-  close: (objective: string, params: Params): Call => ({ receiver: objective, method: "ob_close", args: { params }, tgas: TGAS.close }),
+  close: (objective: string, params: Params): Call => ({
+    receiver: objective,
+    method: "ob_close",
+    args: { params },
+    tgas: closeTgas(params),
+  }),
 };
 
 /** A call as an agent reads it: gas and deposit in the units wallets take. */

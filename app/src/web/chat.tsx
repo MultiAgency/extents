@@ -20,9 +20,9 @@ import { GoTo, Steps } from "./steps.tsx";
 
 /** Briefs a demo can start from in one click: testnet accounts, small amounts. */
 const BRIEFS = [
-  "I have 2 USDC for a NEAR builders meetup in New York before March 1, run by agency.testnet. I'll judge it myself.",
-  "Pay 1 USDC to agency.testnet for a blog post announcing Extents, live by December 15 with at least 500 words. I'll judge it.",
-  "Fund 3 USDC for a NEAR Intents workshop in Lisbon by February. agency.testnet runs it and multiagency.sputnikv2.testnet judges.",
+  "I have 2 USDC for a NEAR builders meetup in New York by 2027-03-01T00:00:00Z. agency.testnet runs it and gets all of it. I'll judge it myself.",
+  "Pay 1 USDC, all to agency.testnet, for a blog post announcing Extents with at least 500 words, live by 2026-12-15T00:00:00Z. I'll judge it myself.",
+  "Fund 3 USDC for a NEAR Intents workshop in Lisbon by 2027-02-01T00:00:00Z. agency.testnet runs it and gets all of it; multiagency.sputnikv2.testnet judges.",
 ];
 
 /** The conversation over AG-UI: frontend tool calls are answered between runs. */

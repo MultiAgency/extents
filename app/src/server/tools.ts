@@ -1,6 +1,6 @@
 /**
  * The server-side tools, one implementation shared by the customer agent's
- * loop and the MCP server: input is checked by each tool's schema before
+ * loop and the agent API (`/api/tools/:name`): input is checked by each tool's schema before
  * the tool runs.
  */
 import { z } from "zod";

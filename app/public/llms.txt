@@ -2,16 +2,27 @@
 
 > Escrow for real-world outcomes on NEAR. A sponsor funds an objective in USDC on the NEAR Intents Verifier; it pays the contributors only if an evaluator attests that the objective was achieved against a published spec, and returns everything to the sponsor otherwise. Testnet only, against Tidepool's Verifier (`verifier.tidepool-sandbox.testnet`).
 
-Agents can draft and launch objectives for a sponsor, read their state, check specs, and evaluate deliveries for an evaluator. Agents never sign: every transaction belongs to a wallet or a Sputnik DAO.
+Agents can draft and launch objectives for a sponsor, read their state, check specs, and evaluate deliveries for an evaluator. Agents never sign: every transaction belongs to a wallet or a Sputnik DAO. Whatever a person can do in a browser, they do on the objective's page: give them its link rather than raw transactions when they have no signer of their own.
 
 ## Use it
 
-- [Agent skill](/skill.md): how an agent drafts, deploys and hands an objective to its sponsor to sign, and evaluates one for its evaluator, step by step.
-- MCP server (`/mcp`, streamable HTTP, stateless): tools `draft_objective`, `deploy_objective`, `evaluate_objective`, `propose_spec`, `check_accounts`, `verifier_balance`, `view_objective`.
-- Customer agent (`/api/agent`, AG-UI 1.0 over SSE): the conversational agent this app runs. Send `forwardedProps.account` (the sponsor) and advertise the frontend tool `launch_objective`; the run ends with it pending in `RUN_FINISHED.outcome.pendingToolCallIds`, and its draft streams as `STATE_SNAPSHOT`s.
-- Checks (`/api/check`, AG-UI): a draft report checked against an objective's terms, live. `forwardedProps = {objective, deliverable: {text}}`; each criterion is a `check` tool call, its result a `TOOL_CALL_RESULT`, and `RUN_FINISHED.result` the summary.
-- Evaluation (`/api/evaluate`, AG-UI): the same, over the reports delivered on chain. `forwardedProps = {objective}`; `RUN_FINISHED.result` is `{summary, delivered, missing?, review?}`: `missing` names the slots with no verified report, and the review is present when the results support a verdict.
-- `GET /api/objective/{account}`: an objective's on-chain state, its published, hash-checked documents, and `evaluator_dao` (proposal bond, proposers) when its evaluator is a Sputnik DAO.
+- [Agent skill](/skill.md): the recipes, step by step: draft, deploy and hand an objective to its sponsor; evaluate one for its evaluator.
+- `https://<this host>/o/{objective}`: the objective's page, for people. Its terms and live state; contributors commit, check and deliver there, and the evaluator checks and attests there, each in their own wallet. Every API answer about an objective carries this link as `page`.
+
+## API
+
+Plain JSON over HTTPS. Send `content-type: application/json`. Errors are `{"error": "…"}` with status 400 (bad input; the message says what), 404, 429 (the hourly allowance is spent; retry later) or 502 (a chain read failed; retry). Amounts are decimal strings. Nothing is ever signed or sent for you, except `POST /api/deploy`, which anyone may call.
+
+- `POST /api/tools/propose_spec` — body: a spec (`{v: 1, statement, criteria: [{id, description, check: {kind, …}}], max_report_bytes?}`). Returns `{ok: true, spec_hash}` or `{ok: false, error}`: fix the error and check again.
+- `POST /api/tools/check_accounts` — body `{accounts: ["a.testnet", …]}` (1 to 12). Returns each account mapped to whether it exists.
+- `POST /api/tools/verifier_balance` — body `{account}`. Returns `{USDC: "12.5"}`: what the account holds on the Verifier.
+- `POST /api/tools/view_objective` — body `{objective}`. The same as `GET /api/objective/{objective}`.
+- `GET /api/objective/{objective}` — `{deployed, state?: {funded, committed, delivered, taken, deadline, outcome?, owed, in_flight}, documents?: {params, spec}, verifier_balance, evaluator_dao?}`. `committed`, `delivered` and `taken` are bitmasks over the contributors in `params` order; `funded` is in base units (6 decimals); `documents` are present only once published and checked against the address; `evaluator_dao` (`{proposal_bond, proposers}`) when the evaluator is a Sputnik DAO.
+- `POST /api/draft` — body `{proposal: {spec, contributors: {account: percent}, evaluator, deadline, amount, acceptance_window_hours?}, sponsor, salt?}`. Percents sum to 100 (at most 10 contributors); `deadline` is RFC 3339 UTC; `amount` is in USDC. Returns `{objective, page, params, spec, transactions: [publish, fund]}`; each transaction is `{step, signer, receiver, method, args, gas, deposit?, note?}`. Keep `params.salt`: drafting again with it gives the same objective.
+- `POST /api/deploy` — body `{params}` (exactly as `/api/draft` returned them). Deploys the objective's contract at its derived address. Idempotent, and it cannot change the terms. Returns `{accountId, txHash?}`.
+- `POST /api/objective/{objective}/review` — empty body. Checks every criterion against the reports delivered on chain, as the evaluator would. Returns `{summary, results: [{criterion_id, outcome: pass|fail|skipped, detail}], delivered, missing?, review?, params, evaluator_dao?, page, transactions?}`. With `review`, `transactions` are `[publish, attest]`, or `[publish, propose]` for a DAO evaluator. Without it, a check could not run (see each result's `detail`): try again later, and never attest without a review.
+- `POST /api/check` and `POST /api/evaluate` — the same checks streamed live as AG-UI 1.0 over SSE, for pages. `forwardedProps = {objective, deliverable: {text}}` or `{objective}`; each criterion is a `check` tool call, its result a `TOOL_CALL_RESULT`, and `RUN_FINISHED.result` the summary.
+- `POST /api/agent` — the customer agent this app runs, AG-UI 1.0 over SSE. Send `forwardedProps.account` (the sponsor) and advertise the frontend tool `launch_objective`; the run ends with it pending in `RUN_FINISHED.outcome.pendingToolCallIds`, and its draft streams as `STATE_SNAPSHOT`s.
 
 ## Protocol
 

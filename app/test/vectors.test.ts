@@ -10,7 +10,7 @@ import { describe, expect, test } from "vitest";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
-import { attestTgas } from "../src/shared/attest.ts";
+import { attestTgas, closeTgas } from "../src/shared/attest.ts";
 import { judgedText, judgeRequest } from "../src/shared/judge.ts";
 import { borshParams, initState, objectiveAccountId, paramsHash, validateParams, type Params } from "../src/shared/params.ts";
 import { parseReview, parseSpec, reviewHash, specHash, SpecError } from "../src/shared/spec.ts";
@@ -55,6 +55,7 @@ interface ParamsVector {
   code_hash: string;
   account_id: string;
   attest_tgas: number;
+  close_tgas: number;
 }
 
 describe("contracts/objective vectors", () => {
@@ -69,6 +70,7 @@ describe("contracts/objective vectors", () => {
     expect(bytesToHex(value)).toBe(c.state_init.value);
     expect(objectiveAccountId(c.params, c.code_hash)).toBe(c.account_id);
     expect(attestTgas(c.params)).toBe(c.attest_tgas);
+    expect(closeTgas(c.params)).toBe(c.close_tgas);
     expect(validateParams(c.params)).toBeUndefined();
   });
 

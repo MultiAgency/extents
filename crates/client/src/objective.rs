@@ -36,10 +36,6 @@ pub mod gas {
     pub const ADD_PUBLIC_KEY: Gas = Gas::from_tgas(30);
     /// `add_proposal` on a Sputnik DAO.
     pub const ADD_PROPOSAL: Gas = Gas::from_tgas(100);
-    /// `ob_close`. Unfinished: a flat ceiling, not yet a rule like
-    /// `Params::attest_gas`, because one close may retry payouts, read the
-    /// balance and delete.
-    pub const CLOSE: Gas = Gas::from_tgas(300);
     /// `execute_intents` on the Verifier.
     pub const EXECUTE_INTENTS: Gas = Gas::from_tgas(300);
     /// `act_proposal`: the approving vote executes the proposal inside it.
@@ -180,10 +176,14 @@ impl Objective {
         )
     }
 
-    /// Anyone may send it, so a DAO never needs to propose it: its gas would
-    /// not fit inside the vote that executes a proposal.
+    /// `ob_close`, with `Params::close_gas`: enough for its worst case,
+    /// retrying every payout and then deleting the objective.
     pub fn close(&self) -> Call {
-        self.own("ob_close", json!({ "params": self.params }), gas::CLOSE)
+        self.own(
+            "ob_close",
+            json!({ "params": self.params }),
+            self.close_gas(),
+        )
     }
 
     /// A Verifier `transfer` intent of `amount` to the objective, with the
@@ -213,6 +213,10 @@ impl Objective {
 
     fn attest_gas(&self) -> Gas {
         Gas::from_gas(self.params.attest_gas().as_gas())
+    }
+
+    fn close_gas(&self) -> Gas {
+        Gas::from_gas(self.params.close_gas().as_gas())
     }
 
     fn fund_msg(&self) -> String {
@@ -385,7 +389,8 @@ mod tests {
         );
 
         let close = ob.close();
-        assert_eq!((close.method, close.gas), ("ob_close", gas::CLOSE));
+        assert_eq!(close.method, "ob_close");
+        assert_eq!(close.gas.as_gas(), ob.params().close_gas().as_gas());
     }
 
     #[test]

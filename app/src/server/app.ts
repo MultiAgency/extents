@@ -1,4 +1,8 @@
-/** The API: the customer agent over AG-UI, live checks and evaluation, the StateInit deploy, objective reads. */
+/**
+ * The API: the customer agent over AG-UI, live checks and evaluation, the
+ * StateInit deploy, objective reads, and the same work as plain JSON for
+ * other agents (documented for them in /llms.txt and /skill.md).
+ */
 import { EventEncoder } from "@ag-ui/encoder";
 import type { BaseEvent } from "@ag-ui/core";
 import { RunAgentInputSchema } from "@ag-ui/core/schemas";
@@ -8,12 +12,16 @@ import { Budget } from "./budget.ts";
 import { abortable, RUN_MS, withTimeout } from "./bounded.ts";
 import { RPC_READ_MS } from "./rpc.ts";
 
+import { z } from "zod";
+
+import { proposal } from "../shared/objective.ts";
 import { validateParams, type Params } from "../shared/params.ts";
 import { accountId } from "../shared/spec.ts";
 import { runAgent, type AgentDeps } from "./agent.ts";
+import { draft, review } from "./agents.ts";
 import type { CheckDeps } from "./checks.ts";
-import { mcpResponse } from "./mcp.ts";
 import { runChecks, runEvaluation, type CheckRunDeps } from "./precheck.ts";
+import { SERVER_TOOLS } from "./tools.ts";
 
 export interface AppDeps extends AgentDeps {
   deploy(params: Params): Promise<{ accountId: string; txHash?: string }>;
@@ -156,8 +164,50 @@ export function createApp(deps: AppDeps): Hono {
     }
   });
 
-  /** Extents for other agents: see /llms.txt. */
-  app.all("/mcp", (c) => mcpResponse(c.req.raw, { ...deps, unreachableSince, charge }));
+  /** The customer agent's tools, for any agent: the body is the tool's input, checked by the same schema. */
+  app.post("/api/tools/:name", async (c) => {
+    const name = c.req.param("name");
+    const tool = name === "update_draft" ? undefined : SERVER_TOOLS[name]; // the customer's canvas, not a protocol operation
+    if (!tool) return c.json({ error: `no tool ${name}; see /llms.txt` }, 404);
+    const input = tool.input.safeParse(await c.req.json().catch(() => undefined));
+    if (!input.success) return c.json({ error: `invalid input: ${z.prettifyError(input.error)}` }, 400);
+    try {
+      const signal = withTimeout(c.req.raw.signal, RPC_READ_MS);
+      return c.json(await abortable(signal, () => tool.run(input.data as never, deps.chain, signal)));
+    } catch (e) {
+      console.error(e);
+      return c.json({ error: `${name} failed; try again` }, 502);
+    }
+  });
+
+  const draftInput = z.object({
+    proposal,
+    sponsor: accountId,
+    salt: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
+  });
+  /** Agreed terms as an objective, down to the sponsor's unsigned transactions. Nothing is sent. */
+  app.post("/api/draft", async (c) => {
+    const input = draftInput.safeParse(await c.req.json().catch(() => undefined));
+    if (!input.success) return c.json({ error: `invalid input: ${z.prettifyError(input.error)}` }, 400);
+    try {
+      return c.json(draft(input.data.proposal, input.data.sponsor, input.data.salt, c.req.url));
+    } catch (e) {
+      return c.json(failure(e), 400);
+    }
+  });
+
+  /** The evaluation as one JSON answer: the review and the evaluator's unsigned calls, when the results support a verdict. */
+  app.post("/api/objective/:id/review", async (c) => {
+    const objective = accountId.safeParse(c.req.param("id"));
+    if (!objective.success) return c.json({ error: "not an account id" }, 400);
+    const spent = charge();
+    if (spent) return c.json({ error: spent }, 429);
+    const signal = withTimeout(c.req.raw.signal, RUN_MS);
+    return c.json(await review(objective.data, { ...deps, unreachableSince, signal }, c.req.url));
+  });
 
   app.get("/api/objective/:id", async (c) => {
     try {

@@ -113,7 +113,7 @@ describe("buildObjective deadline", () => {
   );
 });
 
-describe("raw Params, as deploy and MCP receive them", () => {
+describe("raw Params, as deploy and the agent API receive them", () => {
   const params = (deadline: string, commit_by?: string) =>
     ({
       sponsor: "customer.testnet",

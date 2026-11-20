@@ -5,7 +5,7 @@
 //! `tests/vectors/params.json` holds, for each case: the params JSON, their
 //! borsh bytes and hash, the `StateInit` data entry, and the NEP-616 account
 //! id it derives under a fixed code hash, and the Tgas `ob_attest` needs
-//! (`Params::attest_gas`). `params.schema.bin` and
+//! (`Params::attest_gas`) and `ob_close` needs (`Params::close_gas`). `params.schema.bin` and
 //! `storage.schema.bin` hold the borsh schema containers of `Params` and
 //! `ContractStorage`, from which TypeScript schemas can be generated. The test fails when the code and
 //! the file disagree. After a deliberate layout change, rewrite the file
@@ -104,6 +104,7 @@ fn vector(name: &str, params: &Params) -> Value {
         "code_hash": CODE_HASH,
         "account_id": account_id.as_str(),
         "attest_tgas": params.attest_gas().as_tgas(),
+        "close_tgas": params.close_gas().as_tgas(),
     })
 }
 

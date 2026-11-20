@@ -216,6 +216,8 @@ export function runEvaluation(input: RunAgentInput, deps: CheckRunDeps): AsyncGe
     // params and the evaluator DAO ride along so a caller preparing the attestation needn't read the objective again
     return {
       summary: summarize(results),
+      // each criterion's outcome and detail: a JSON caller has no stream to read why a check was skipped
+      results,
       delivered,
       ...(missing.length ? { missing } : {}),
       params,

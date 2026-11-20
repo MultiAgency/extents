@@ -96,8 +96,8 @@ async fn failed_payouts_are_requeued_and_retried() -> Result<()> {
 
 /// The heaviest `ob_close`: after the deadline, it retries eleven failed
 /// payouts (ten contributors and the sponsor's remainder), then reads the
-/// objective's balance and deletes it, all in one transaction within the
-/// 300 Tgas limit.
+/// objective's balance and deletes it, all in one transaction within
+/// `Params::close_gas` (250 Tgas).
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn worst_case_close_retries_eleven_payouts_and_deletes() -> Result<()> {

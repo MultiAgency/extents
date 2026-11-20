@@ -38,6 +38,6 @@ export default defineConfig({
   output: { distPath: { root: process.env.DIST_DIR ?? "dist" } },
   server: {
     port: 3001,
-    proxy: { "/api": `http://localhost:${process.env.PORT ?? 3000}`, "/mcp": `http://localhost:${process.env.PORT ?? 3000}` },
+    proxy: { "/api": `http://localhost:${process.env.PORT ?? 3000}` },
   },
 });

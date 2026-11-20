@@ -40,6 +40,10 @@ const CONTRIBUTOR_NEAR: NearToken = NearToken::from_millinear(500);
 const COUNCIL_NEAR: NearToken = NearToken::from_millinear(1000);
 const COUNCIL: usize = 2;
 
+/// Shortfalls below this are left alone: each minimum above already has
+/// margin, and a top-up costs a transaction.
+const TOP_UP_THRESHOLD: NearToken = NearToken::from_millinear(10);
+
 /// NEP-591 charges 10× the regular storage price for global contract code.
 const GLOBAL_CONTRACT_YOCTO_PER_BYTE: u128 = 10 * 10u128.pow(19);
 /// Gas for the publish transaction itself.
@@ -91,7 +95,7 @@ impl Accounts {
                 let Some(short) = amount
                     .as_yoctonear()
                     .checked_sub(balance)
-                    .filter(|s| *s > 0)
+                    .filter(|s| *s >= TOP_UP_THRESHOLD.as_yoctonear())
                 else {
                     println!("{account}: exists");
                     continue;

@@ -23,6 +23,13 @@ export interface Dao {
  */
 export const attestTgas = (params: Params) => (Object.keys(params.contributors).length + 1) * 15 + 10 + 35;
 
+/**
+ * Gas for `ob_close`, as `Params::close_gas`: its worst case retries every
+ * payout as `ob_attest` sends them, then reads the Verifier balance and, at
+ * zero, deletes the account.
+ */
+export const closeTgas = (params: Params) => attestTgas(params) + 5 + 35;
+
 /** The contract's `Attestation`: a verdict and, optionally, the hash of the review behind it. */
 export interface Attestation {
   verdict: Review["verdict"];

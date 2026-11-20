@@ -20,7 +20,8 @@
     },
     "code_hash": "FS91WimvUhXCC6ij7YNwSca6xgT9iER4Qb3LTxqUVkwa",
     "account_id": "0s1b919b792876b8c6459fd059f2686bf34c4cd3d9",
-    "attest_tgas": 75
+    "attest_tgas": 75,
+    "close_tgas": 115
   },
   {
     "name": "windowed-auth-call",
@@ -46,7 +47,8 @@
     },
     "code_hash": "FS91WimvUhXCC6ij7YNwSca6xgT9iER4Qb3LTxqUVkwa",
     "account_id": "0sab43c8a13e8917892d94fc8e8f0fe1fee2a79a9a",
-    "attest_tgas": 90
+    "attest_tgas": 90,
+    "close_tgas": 130
   },
   {
     "name": "ten-contributors",
@@ -80,7 +82,8 @@
     },
     "code_hash": "FS91WimvUhXCC6ij7YNwSca6xgT9iER4Qb3LTxqUVkwa",
     "account_id": "0s0831c0430c769ab3c0f2dcc8aa30043e27d65e12",
-    "attest_tgas": 210
+    "attest_tgas": 210,
+    "close_tgas": 250
   },
   {
     "name": "backups",
@@ -109,6 +112,7 @@
     },
     "code_hash": "FS91WimvUhXCC6ij7YNwSca6xgT9iER4Qb3LTxqUVkwa",
     "account_id": "0s220033a60d29e002eb89c638fb15c13ec6c1f8f6",
-    "attest_tgas": 90
+    "attest_tgas": 90,
+    "close_tgas": 130
   }
 ]

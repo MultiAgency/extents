@@ -174,10 +174,12 @@ Deletion waits for the last moment to attest so that redeploying the same
   balance.
 - **Payout gas has a ceiling.** Each payout is reserved 15 Tgas, and the
   balance read before deletion 5 Tgas; both share any gas the caller attaches
-  beyond what the call reserves. A retry sends everything owed in one batch,
-  so each payout gets at most roughly (300 Tgas minus the batch callback and
-  the call's own execution) divided by the number of payouts owed, about
-  21–25 Tgas with eleven. Should a Verifier upgrade make `mt_transfer` cost
+  beyond what the call reserves. A retry sends everything owed in one batch.
+  `Params::close_gas` (250 Tgas with ten contributors) covers each payout's
+  15 Tgas; a caller who attaches the 300 Tgas maximum gives each payout at
+  most roughly (300 Tgas minus the batch callback and the call's own
+  execution) divided by the number of payouts owed, about 21–25 Tgas with
+  eleven. Should a Verifier upgrade make `mt_transfer` cost
   more than that, those payouts could not be sent.
 - **Deletion can be blocked.** An objective deletes itself only at a zero
   balance, so anyone can keep one alive by sending it a unit. Deletion protects
@@ -314,50 +316,44 @@ contradicting the results (including `achieved` with a criterion skipped), a
 missing result, the wrong spec, or a fetched criterion passed without evidence
 are rejected; a fetched criterion may fail without evidence.
 
-The current contract is published on testnet as global code
-`4GxG7Nyek6NcaKqkGfDoXrBwspYPE7gA1ADigd3JoiTF` (SHA-256 `30a94195…`), the
-reproducible build of commit `c50d0bb`, which passed the full sandbox suite
-before publishing. The e2e scenarios, including `accepted`, have not yet run
-against it.
+Established on testnet against Tidepool's Verifier, the same v0.4.5 build as
+mainnet `intents.near`, by [`e2e/`](e2e/README.md) (2026-11-20). The contract
+is published as global code `4GxG7Nyek6NcaKqkGfDoXrBwspYPE7gA1ADigd3JoiTF`
+(SHA-256 `30a94195…`), the reproducible build of commit `c50d0bb`, which passed
+the full sandbox suite on that exact file first. All ten scenarios pass, 170 of
+170 checks. Every transaction and balance is in
+[`e2e/results/30a94195…/`](e2e/results/30a9419511a344613eb36e64cdee02a3f032ce17811ef2098e729030713f8cb6/RESULTS.md).
 
-Historical testnet evidence (predates current delivery, acceptance and cleanup changes):
-established on testnet against Tidepool's Verifier, the same v0.4.5 build as
-mainnet `intents.near`, by [`e2e/`](e2e/README.md) (2026-11-20). The run used
-global code hash `FS91WimvUhXCC6ij7YNwSca6xgT9iER4Qb3LTxqUVkwa`, built with
-`cargo-near` 0.22. Transaction hashes and balances are in
-the dated observations in [`e2e/README.md`](e2e/README.md). New reports are grouped by WASM hash under `e2e/results/`.
-
-- **Deployment.** Publishing by code hash cost 28.72 NEAR (10× storage).
-  `StateInit` deploys at the account id derived from `init_state`. The
-  instance uses 240 bytes and needs no NEAR. A `StateInit` deposit only
-  covers missing storage stake, so it is refunded in full.
+- **Deployment.** Publishing by code hash cost 32.48 NEAR (10× storage for
+  324,728 bytes). `StateInit` deploys at the account id derived from
+  `init_state`, and the instance needs no NEAR: a `StateInit` deposit is
+  refunded in full.
 - **Funding and resolution.**
   - Funding by the sponsor's `mt_transfer_call`.
-  - Commitment directly and by signed `auth_call` intent.
-  - An achieved verdict is rejected until all have committed.
-  - An achieved verdict pays each share exactly, with the remainder to the
-    sponsor, directly and by `auth_call`.
-  - A failed verdict returns everything.
-  - `ob_close` is rejected before the deadline. After it, `ob_close` resolves
-    as expired and returns everything.
-  - `committed`, `resolved` (with `review_hash`), `paid` and `cleanup`
-    events.
+  - An achieved verdict is refused until every contributor has delivered
+    (`not all contributors have delivered`), then pays each share exactly,
+    with the remainder to the sponsor.
+  - Commitment, delivery and attestation by signed `auth_call` intent.
+  - A failed verdict returns everything. `ob_close` is refused before the
+    deadline; after it, it resolves as expired and returns everything.
+  - With an acceptance window, the evaluator's silence after full delivery
+    resolves as `accepted` and pays the split.
 - **Payouts from a zero balance.** Each `mt_transfer` attaches 1 yoctoNEAR.
   At protocol 88 (`one_yocto_on_promise`, nearcore 2.14), that is not
   deducted while the contract's balance is zero, so an instance needs no NEAR
   at all. The contract relies on this.
-- **Gas.** 10 contributors and 11 payouts settle in one `ob_attest`, burning
-  54.4 Tgas. It needs about 182 Tgas prepaid against the 300 Tgas limit.
-  Each transfer burns at most 4.2 of its 15 Tgas, and the callback at most
-  1.8 of its 10 Tgas. The same settlement also works when the evaluator
-  attests by signed `auth_call` intent. The Verifier burns 4.4 Tgas and
-  forwards the remaining 295.6 Tgas to `on_auth`, of which the settlement
-  burns 58.4 Tgas in total.
-- **Deletion.** After the deadline, a settled instance deletes itself. That
-  happens in the payout callback, or on a later `ob_close`. Any NEAR it holds
-  goes to the signer of that transaction. NEAR can only be added by a plain
-  transfer. (These runs predate the balance check: deletion now happens only
-  through `ob_close`, after the objective's Verifier balance reads zero.)
+- **Gas.** 10 contributors and 11 payouts settle in one `ob_attest` with
+  exactly `Params::attest_gas`, 210 Tgas, burning 53.7 Tgas. Each transfer
+  gets its 15 Tgas plus a share of the unused gas and burns at most 3.97; the
+  callback burns 1.8 of its 10. By signed intent, the Verifier forwards
+  295.6 Tgas to `on_auth`, and the settlement burns 58.5 Tgas in total.
+- **Deletion.** After the deadline, `ob_close` reads the objective's Verifier
+  balance and, at zero, deletes the account in the same transaction, paying
+  any NEAR it holds to the closer.
+- **A DAO as sponsor and evaluator.** A Sputnik DAO (`e2e-agency.sputnikv2.testnet`)
+  funds and attests by `FunctionCall` proposals, and the DAO's MPC-derived
+  account (`aa59f4f8…`) funds and attests by intents its council signs by
+  vote. Each proposal is verified against its payload before the vote.
 
 Established in a local sandbox by [`sandbox/`](sandbox/README.md), against
 the Verifier binary deployed at mainnet `intents.near` (code hash
@@ -408,9 +404,6 @@ Established on testnet by [`e2e/`](e2e/README.md#a-dao-signing-intents-by-vote)
 
 Not yet established:
 
-- **A DAO funding, committing to and attesting an objective by intent.** The
-  signing path is shown; objective calls against the current contract on
-  testnet have not yet run.
 - **Filing through Trezu's UI.** The template's output is checked against
   the CLI's by a unit test, but it hasn't been loaded into Trezu.
 - **Funding and deploying in one step.** `StateInit` on Verifier transfers and
