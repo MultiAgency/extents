@@ -1,7 +1,9 @@
 # Reading an objective's record
 
 This repository has no reputation service or score. An external reader can derive a record from
-`funded`, `committed`, `delivered`, `resolved`, `paid`, `lost` and `cleanup` events.
+`funded`, `committed`, `withdrawn`, `delivered`, `resolved`, `paid`, `lost` and `cleanup` events.
+A `withdrawn` event empties the slot its `committed` event filled; a `cancelled` outcome is the
+sponsor taking its funding back before anyone had committed.
 
 A resolved outcome records allocation; `paid` records completed transfers. An accepted outcome
 records silence under the agreed acceptance window, and a released one the sponsor's own decision

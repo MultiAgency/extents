@@ -37,6 +37,33 @@ describe("crates/spec vectors", () => {
     expect(bytesToHex(sha256(new TextEncoder().encode(judgeRequest(v.model, v.question, text))))).toBe(v.request_sha256);
   });
 
+  // as crates/spec's a_judged_* tests: review.json with the judged criterion `useful` set to `outcome`, with `calls`
+  const judged = (outcome: string, calls: unknown[], against = spec) => {
+    const review = structuredClone(vectors("review.json"));
+    review.results.find((r: { criterion_id: string }) => r.criterion_id === "useful").outcome = outcome;
+    review.llm_calls = calls;
+    if (against !== spec) review.spec_hash = specHash(against);
+    return () => parseReview(review, against);
+  };
+  const call = (model: string, answer: boolean) => ({
+    criterion_id: "useful",
+    model,
+    answer,
+    request_sha256: "33".repeat(32),
+    response_sha256: "44".repeat(32),
+  });
+
+  test("a judged fail may have no calls, as for a report over the limit; a pass never", () => {
+    expect(judged("fail", [])).not.toThrow();
+    expect(judged("pass", [])).toThrow(/needs every model's answer/);
+  });
+
+  test("once any model was asked, a judged fail needs every model's answer", () => {
+    const raw = structuredClone(vectors("spec.json"));
+    raw.criteria.find((c: { id: string }) => c.id === "useful").check.models = ["a/model", "b/model", "c/model"];
+    expect(judged("fail", [call("a/model", false)], parseSpec(raw))).toThrow(/needs every model's answer/);
+  });
+
   const rejected = readdirSync(join(root, "crates/spec/tests/vectors/rejected"));
   test("every rejected vector is covered", () => expect(rejected.length).toBeGreaterThan(0));
   test.each(rejected)("rejects %s", (file) => {

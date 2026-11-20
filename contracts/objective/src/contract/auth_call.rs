@@ -38,6 +38,8 @@ impl Contract {
                 PromiseOrValue::Value(self.deliver(signer_id, &params, delivery)?)
             }
             Action::Attest(attestation) => self.attest(signer_id, &params, attestation)?,
+            Action::Withdraw => PromiseOrValue::Value(self.withdraw(signer_id, &params)?),
+            Action::Cancel => self.cancel(signer_id, &params)?,
         })
     }
 }

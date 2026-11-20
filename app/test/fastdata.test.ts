@@ -75,3 +75,26 @@ test("delivery reads target the holder and never accept another writer's report"
   });
   await expect(readDeliverables(objective.accountId, ["worker.testnet"])).rejects.toThrow(/proof.*worker.testnet/);
 });
+
+test("terms the deployer published for a sponsor with no NEAR key are read; no other writer's are", async () => {
+  vi.stubEnv("DEPLOYER_ACCOUNT_ID", "deployer.testnet");
+  const asked: string[] = [];
+  const by = (writer: string) =>
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      const { key } = JSON.parse(init.body as string);
+      if (key === DOCUMENT_KEYS.params) return Response.json({ entries: [{ predecessor_id: writer, key, value: objective.params }] });
+      const asking = url.split("/").at(-1)!;
+      asked.push(asking);
+      return Response.json({ entries: asking === writer ? [{ predecessor_id: writer, key, value: objective.spec }] : [] });
+    });
+  by("deployer.testnet");
+  expect(await launchDocumentReader()(objective.accountId, CODE)).toEqual({ params: objective.params, spec: objective.spec });
+  // the sponsor's own row first, then the deployer's
+  expect(asked).toEqual(["sponsor.testnet", "deployer.testnet"]);
+
+  asked.length = 0;
+  by("attacker.testnet");
+  expect(await launchDocumentReader()(objective.accountId, CODE)).toBeUndefined();
+  expect(asked).toEqual(["sponsor.testnet", "deployer.testnet"]);
+  vi.unstubAllEnvs();
+});

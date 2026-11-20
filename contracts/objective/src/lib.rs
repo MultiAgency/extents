@@ -34,6 +34,12 @@ pub trait Objective {
     /// empty; only before a verdict and the deadline, only once per slot.
     fn ob_commit(&mut self, params: Params);
 
+    /// Gives the caller's slot back. Only whoever holds it, only before it
+    /// delivers, before a verdict and the deadline. The slot is empty again:
+    /// its listed contributor, or its backup once `commit_by` passed, may
+    /// commit to it. A delivery can never be taken back.
+    fn ob_withdraw(&mut self, params: Params);
+
     /// Records a committed contributor's delivery, by hash. Only once,
     /// before a verdict and the deadline. Once every contributor has
     /// delivered, `Params::acceptance_window_secs` extends the last moment
@@ -53,6 +59,11 @@ pub trait Objective {
     /// objective resolves as [`Outcome::Released`], not as the evaluator's
     /// verdict. The sponsor can never send [`Verdict::Failed`].
     fn ob_attest(&mut self, params: Params, attestation: Attestation) -> PromiseOrValue<()>;
+
+    /// Returns the funded balance to the sponsor and resolves the objective
+    /// as [`Outcome::Cancelled`]. Only `params.sponsor`, only while no slot is
+    /// committed: once anyone has committed, the funding is theirs to earn.
+    fn ob_cancel(&mut self, params: Params) -> PromiseOrValue<()>;
 
     /// Permissionless. Once the last moment to attest passed without a
     /// verdict, resolves the objective as [`Outcome::Accepted`] if it has an

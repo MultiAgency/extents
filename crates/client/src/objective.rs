@@ -159,6 +159,10 @@ impl Objective {
         self.own("ob_commit", json!({ "params": self.params }), gas::CALL)
     }
 
+    pub fn withdraw(&self) -> Call {
+        self.own("ob_withdraw", json!({ "params": self.params }), gas::CALL)
+    }
+
     pub fn deliver(&self, delivery: &Delivery) -> Call {
         self.own(
             "ob_deliver",
@@ -172,6 +176,16 @@ impl Objective {
         self.own(
             "ob_attest",
             json!({ "params": self.params, "attestation": attestation }),
+            self.attest_gas(),
+        )
+    }
+
+    /// `ob_cancel`. It sends one payout, the sponsor's, so the attest budget
+    /// covers it.
+    pub fn cancel(&self) -> Call {
+        self.own(
+            "ob_cancel",
+            json!({ "params": self.params }),
             self.attest_gas(),
         )
     }
@@ -197,7 +211,9 @@ impl Objective {
     /// `auth_caller` or the Verifier, and with none the contract refuses the
     /// intent.
     pub fn auth_call(&self, action: Action) -> Value {
-        let min_gas = matches!(action, Action::Attest(_)).then(|| self.attest_gas());
+        // the acts that send payouts need the gas for them
+        let min_gas =
+            matches!(action, Action::Attest(_) | Action::Cancel).then(|| self.attest_gas());
         let msg = serde_json::to_string(&Message {
             params: self.params.clone(),
             action,

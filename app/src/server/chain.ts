@@ -1,6 +1,7 @@
 import { Near } from "near-kit";
 
-import { accountId as accountSchema } from "../shared/spec.ts";
+import { calls } from "../shared/calls.ts";
+import { accountId as accountSchema, specHash, type Spec } from "../shared/spec.ts";
 import type { Dao } from "../shared/attest.ts";
 import { NETWORK, objectiveCodeHash, TOKEN, VERIFIER } from "../shared/config.ts";
 import { readLaunchDocuments } from "./fastdata.ts";
@@ -95,18 +96,45 @@ function deployer(): { near: Near; accountId: string } {
  * Safe to offer to anyone: the address is derived from `Params`, so the
  * deployer cannot change what is deployed, and an instance needs no NEAR.
  */
-export async function deployObjective(params: Params): Promise<{ accountId: string; txHash?: string }> {
+export async function deployObjective(params: Params, spec?: Spec): Promise<{ accountId: string; txHash?: string; published?: boolean }> {
   const problem = validateParams(params);
   if (problem) throw new Error(problem);
+  if (spec && specHash(spec) !== params.spec_hash) throw new Error("the spec does not match params.spec_hash");
   const codeHash = objectiveCodeHash();
   const accountId = objectiveAccountId(params, codeHash);
-  if (await accountExists(accountId)) return { accountId };
+  let txHash: string | undefined;
+  if (!(await accountExists(accountId))) {
+    const { near, accountId: signer } = deployer();
+    const outcome = await near
+      .transaction(signer)
+      .stateInit({ code: { codeHash }, data: initState(params), deposit: 0n })
+      .send({ waitUntil: "FINAL" });
+    if (!(await accountExists(accountId))) throw new Error(`StateInit did not create ${accountId}`);
+    txHash = outcome.transaction.hash;
+  }
+  return {
+    accountId,
+    ...(txHash ? { txHash } : {}),
+    ...(spec ? { published: await publishTerms(accountId, params, spec, codeHash) } : {}),
+  };
+}
 
+/**
+ * Publishes the terms from the deployer, for a sponsor with no NEAR key to
+ * publish them; the reader accepts the deployer's spec row. Skipped once they
+ * are readable. The receipt fails by design (see `calls.publish`).
+ */
+async function publishTerms(objective: string, params: Params, spec: Spec, codeHash: string): Promise<boolean> {
+  if (await readLaunchDocuments(objective, codeHash)) return false;
   const { near, accountId: signer } = deployer();
-  const outcome = await near
-    .transaction(signer)
-    .stateInit({ code: { codeHash }, data: initState(params), deposit: 0n })
-    .send({ waitUntil: "FINAL" });
-  if (!(await accountExists(accountId))) throw new Error(`StateInit did not create ${accountId}`);
-  return { accountId, txHash: outcome.transaction.hash };
+  const call = calls.publish(objective, { params, spec });
+  try {
+    await near
+      .transaction(signer)
+      .functionCall(call.receiver, call.method, call.args, { gas: `${call.tgas} Tgas` })
+      .send({ waitUntil: "FINAL" });
+  } catch (e) {
+    if (!/MethodNotFound|MethodResolveError/.test(e instanceof Error ? e.message : String(e))) throw e;
+  }
+  return true;
 }

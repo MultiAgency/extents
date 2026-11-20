@@ -16,7 +16,7 @@ import { z } from "zod";
 
 import { proposal } from "../shared/objective.ts";
 import { validateParams, type Params } from "../shared/params.ts";
-import { accountId } from "../shared/spec.ts";
+import { accountId, parseSpec, specHash, type Spec } from "../shared/spec.ts";
 import { runAgent, type AgentDeps } from "./agent.ts";
 import { contribute, draft, review, type ContributorView } from "./agents.ts";
 import type { CheckDeps } from "./checks.ts";
@@ -24,7 +24,8 @@ import { runChecks, runEvaluation, type CheckRunDeps } from "./precheck.ts";
 import { SERVER_TOOLS } from "./tools.ts";
 
 export interface AppDeps extends AgentDeps {
-  deploy(params: Params): Promise<{ accountId: string; txHash?: string }>;
+  /** With `spec`, also publishes the terms from the deployer, for a sponsor with no NEAR key. */
+  deploy(params: Params, spec?: Spec): Promise<{ accountId: string; txHash?: string; published?: boolean }>;
   checks: CheckDeps;
   delivered: CheckRunDeps["delivered"];
 }
@@ -150,15 +151,21 @@ export function createApp(deps: AppDeps): Hono {
     });
   }
 
-  /** Permissionless and trustless: the address is derived from Params, so the deployer cannot change what is deployed. */
+  /**
+   * Permissionless and trustless: the address is derived from Params, so the
+   * deployer cannot change what is deployed. With the spec, it publishes the
+   * terms too, and the spec hash in Params pins what it can publish.
+   */
   app.post("/api/deploy", async (c) => {
     try {
-      const { params } = (await c.req.json()) as { params: Params };
+      const { params, spec: raw } = (await c.req.json()) as { params: Params; spec?: unknown };
       const problem = validateParams(params);
       if (problem) return c.json({ error: problem }, 400);
+      const spec = raw === undefined ? undefined : parseSpec(raw);
+      if (spec && specHash(spec) !== params.spec_hash) return c.json({ error: "the spec does not match params.spec_hash" }, 400);
       const spent = charge();
       if (spent) return c.json({ error: spent }, 429);
-      return c.json(await deps.deploy(params));
+      return c.json(await deps.deploy(params, spec));
     } catch (e) {
       return c.json(failure(e), 400);
     }

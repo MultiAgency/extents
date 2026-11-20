@@ -115,6 +115,25 @@ they check only the caller:
 | `arrivals_after_the_verdict_are_retained` | An unattributed balance that arrives after the verdict is retained: closing after the deadline neither sends it anywhere nor deletes the objective. |
 | `an_under_gassed_deposit_is_refunded_and_never_counted` | A funding deposit whose `mt_on_transfer` runs out of gas is refunded in full and never counted. Only a band of about 0.7 Tgas starves `mt_on_transfer` without starving the Verifier's own call, so the test steps up to it. Its `funded` log survives in the failed receipt, which is why events count only from successful receipts. |
 
+`tests/release.rs` covers the sponsor releasing the payment itself, without
+the evaluator:
+
+| Test | Shows |
+| --- | --- |
+| `sponsor_releases_once_every_slot_delivered` | The sponsor's achieved verdict is refused until every contributor has delivered. Then it resolves as `released` and pays 70/30 exactly, with the remainder to the sponsor. A second verdict is refused. |
+| `sponsor_can_never_attest_failed` | The sponsor's failed verdict is `unauthorized`, and the funds stay on the objective. |
+| `sponsor_releases_by_signed_intent` | The same release by a signed `auth_call` intent relayed to `execute_intents`. |
+| `a_sponsor_who_evaluates_attests_as_the_evaluator` | When the sponsor is also the evaluator, its achieved verdict records `achieved`, not `released`. |
+
+`tests/cancel_withdraw.rs` covers leaving early:
+
+| Test | Shows |
+| --- | --- |
+| `sponsor_cancels_before_any_commitment` | Only the sponsor can cancel. With no slot committed, cancelling refunds the whole amount and resolves as `cancelled`; funding and commitment are then refused. |
+| `a_commitment_locks_the_funding_until_it_is_withdrawn` | Withdrawing without a commitment is refused. A commitment blocks cancelling; once it is withdrawn (a `withdrawn` event), the sponsor can cancel. |
+| `a_withdrawn_slot_passes_between_contributor_and_backup` | The listed contributor commits, withdraws and commits again. After `commit_by` the backup takes the empty slot; the contributor can then neither take it back nor withdraw it. Delivered work cannot be withdrawn, and the holder at the verdict is paid the slot's share. |
+| `withdraw_and_cancel_by_signed_intent` | Commitment, withdrawal and cancellation by signed `auth_call` intents. |
+
 `tests/gas.rs` measures `ob_commit` and `ob_deliver` in an ordinary state and
 at the largest valid one (ten contributors, each with a backup, a window,
 `commit_by` and `auth_caller`). Both burn at most 1.7 Tgas, and the tests

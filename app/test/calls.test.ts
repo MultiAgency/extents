@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { attestProposal } from "../src/shared/attest.ts";
-import { calls, nearCall, type Call } from "../src/shared/calls.ts";
+import { calls, fundIntent, nearCall, type Call } from "../src/shared/calls.ts";
 import type { Params } from "../src/shared/params.ts";
 
 interface Wire {
@@ -21,8 +21,9 @@ interface Wire {
 interface Case {
   name: string;
   account: string;
-  calls: Record<"fund" | "commit" | "deliver" | "attest" | "close", Wire>;
+  calls: Record<"fund" | "commit" | "withdraw" | "deliver" | "attest" | "cancel" | "close", Wire>;
   attest_proposal_kind: unknown;
+  intents: Record<"fund", unknown>;
 }
 
 const root = join(import.meta.dirname, "../..");
@@ -47,7 +48,10 @@ describe.each(cases)("$name", (c) => {
 
   // Deep equality also compares the message string byte for byte.
   test("fund", () => expect(wire(calls.fund(c.account, p, 1000n))).toEqual(c.calls.fund));
+  test("fund intent", () => expect(fundIntent(c.account, p, 1000n)).toEqual(c.intents.fund));
   test("commit", () => expect(wire(calls.commit(c.account, p))).toEqual(c.calls.commit));
+  test("withdraw", () => expect(wire(calls.withdraw(c.account, p))).toEqual(c.calls.withdraw));
+  test("cancel", () => expect(wire(calls.cancel(c.account, p))).toEqual(c.calls.cancel));
   test("deliver", () => expect(wire(calls.deliver(c.account, p, "01".repeat(32)))).toEqual(c.calls.deliver));
   test("attest", () => expect(wire(calls.attest(c.account, p, attestation))).toEqual(c.calls.attest));
   test("close", () => expect(wire(calls.close(c.account, p))).toEqual(c.calls.close));

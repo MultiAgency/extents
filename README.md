@@ -58,18 +58,20 @@ contributors ── ob_commit ──────────▶           │   
                                                     otherwise              ─┘
 ```
 
-**Interface:** `ob_view`, `ob_commit(params)`, `ob_deliver(params, delivery)`,
-`ob_attest(params, attestation)`, `ob_close(params)`, and `mt_on_transfer` with
+**Interface:** `ob_view`, `ob_commit(params)`, `ob_withdraw(params)`,
+`ob_deliver(params, delivery)`, `ob_attest(params, attestation)`,
+`ob_cancel(params)`, `ob_close(params)`, and `mt_on_transfer` with
 `msg = {"params": …, "action": {"action": "fund"}}`. An attestation is
 `{"verdict": "achieved" | "failed", "review_hash"?: <hex>}`; the optional
 `review_hash` commits to the evaluator's [review](#extents-spec) and is
 published in the `resolved` event, so a verdict can be checked later. A
 delivery is `{"hash": <hex>}`, published in the `delivered` event with the
-last moment to attest after it (`attest_by`). Contributors and the evaluator
-can also act through a signed `auth_call` intent on the Verifier (`on_auth`
-with `msg = {"params": …, "action": {"action": "commit"}}`,
-`{"action": "deliver", "data": <delivery>}` or
-`{"action": "attest", "data": <attestation>}`), provided `params.auth_caller`
+last moment to attest after it (`attest_by`). Contributors, the evaluator and
+the sponsor can also act through a signed `auth_call` intent on the Verifier
+(`on_auth` with `msg = {"params": …, "action": {"action": "commit"}}`,
+`{"action": "withdraw"}`, `{"action": "deliver", "data": <delivery>}`,
+`{"action": "attest", "data": <attestation>}` or `{"action": "cancel"}`),
+provided `params.auth_caller`
 names the Verifier. `Params` with any other `auth_caller` are refused: the
 contract trusts the signer its caller names.
 
@@ -107,18 +109,34 @@ with no notification, so tokens it delivers straight to the objective are
 never counted as funding (see Settlement). Not yet tried end to end: a
 1Click quote to a `0x…` recipient, which its docs neither show nor rule out.
 
-**Commitment and delivery:** a contributor commits once, before a verdict and
-the deadline, and cannot withdraw. Once committed, it delivers once, by hash,
-under the same conditions; a delivery cannot be undone. Funding does not wait
-for commitments, so contributors can see the resources before agreeing. A
-failed verdict or expiry needs no commitments.
+**Commitment and delivery:** a contributor commits before a verdict and the
+deadline. Once committed, it delivers once, by hash, under the same
+conditions; a delivery cannot be undone. Funding does not wait for
+commitments, so contributors can see the resources before agreeing. A failed
+verdict or expiry needs no commitments.
+
+<a id="withdrawal"></a>**Withdrawal:** whoever holds a slot can give it back
+with `ob_withdraw`, until it delivers, under the same conditions. The slot is
+then empty, as if nobody had committed to it: its listed contributor may
+commit again, or its backup once `commit_by` has passed. A commitment is
+therefore a public statement of intent, not a lock: nothing ever forced a
+committed contributor to deliver, and withdrawing says so on the record
+(`withdrawn`) rather than by silence until the deadline.
+
+<a id="cancel"></a>**Cancel:** while no slot is committed, the sponsor can take
+its funding back with `ob_cancel`, and the objective resolves as `cancelled`.
+One commitment locks the funding: from then on only a verdict, a release or
+the deadline moves it. Withdrawals that empty every slot unlock it again, so a
+contributor who cannot do the work and a sponsor who agrees can unwind before
+the deadline. Commit before starting work: until then the sponsor can cancel.
 
 **Backups:** `Params.backups` names a backup for some contributors' slots,
 with `Params.commit_by` (required with backups, before the deadline). Before
 `commit_by`, only the listed contributor can commit. After it, if the slot is
 still empty, either the contributor or its backup may commit, and whoever
-commits first holds the slot: its share, its delivery and its payout. A
-committed slot never changes hands, so nobody is replaced mid-job. Backups
+commits first holds the slot: its share, its delivery and its payout. Only
+its holder can give a slot up ([withdrawal](#withdrawal)), so nobody is
+replaced mid-job. Backups
 must name listed contributors, be distinct from every contributor and from
 each other, and cannot be the evaluator. `State.taken` marks the slots a
 backup holds, and payouts name whoever holds each slot.
@@ -259,7 +277,9 @@ verdict can be checked by anyone holding the spec and the deliverables.
   deliverable by hash, one result per criterion (`pass`, `fail` or
   `skipped`), and each model call: its criterion, model, answer, request and
   response hashes, and the provider's signature. A judged `llm_judge` outcome
-  needs one call per named model and must follow their majority. A review
+  needs one call per named model and must follow their majority; the one
+  exception is a `fail` with no calls at all, for a report over
+  `max_report_bytes` that no model was asked about. A review
   of a spec that pins `evaluator_build` records the same build. A review
   validates only if its verdict follows from its results: `achieved` only when
   every criterion passed and no report is missing, `failed` only when at least
@@ -306,6 +326,13 @@ Established, by unit tests under `near-sdk` mocking (`cargo test`):
   only once every slot has delivered and only in the time to attest, directly
   or through `on_auth`; the sponsor's `failed` is refused; a sponsor that is
   also the evaluator attests as the evaluator
+- cancel: only the sponsor, only while no slot is committed and before any
+  outcome; it returns the funding and resolves as `cancelled`, after which
+  funding and commitment are refused; withdrawals that empty every slot make
+  it possible again
+- withdrawal: only the slot's holder, only before it delivers, before a
+  verdict and the deadline; the slot reopens to its contributor and, after
+  `commit_by`, to its backup; a delivery is never withdrawn
 - events for commitments and for the allocation of an achieved and of a
   failed verdict, including the review hash
 - committing, delivering and attesting through `on_auth`
@@ -342,9 +369,10 @@ the full sandbox suite on that exact file first. All ten scenarios pass, 170 of
 170 checks. Every transaction and balance is in
 [`e2e/results/30a94195…/`](e2e/results/30a9419511a344613eb36e64cdee02a3f032ce17811ef2098e729030713f8cb6/RESULTS.md).
 
-[Release](#release) (`Outcome::Released`) is in the source and its unit tests
-only. It changes the contract's code hash, so the published build does not
-have it, and it has not run in the sandbox or on testnet.
+[Release](#release), [cancel](#cancel) and [withdrawal](#withdrawal) change
+the contract's code hash, so the published build has none of them and none has
+run on testnet. Cancel and withdrawal are covered by unit tests only; release
+also by `sandbox/tests/release.rs`.
 
 - **Deployment.** Publishing by code hash cost 32.48 NEAR (10× storage for
   324,728 bytes). `StateInit` deploys at the account id derived from

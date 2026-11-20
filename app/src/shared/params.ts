@@ -76,7 +76,7 @@ const storageSchema = b.option(
     committed: b.u16(),
     delivered: b.u16(),
     taken: b.u16(),
-    outcome: b.option(b.enum({ Achieved: unit, Failed: unit, Expired: unit, Accepted: unit, Released: unit })),
+    outcome: b.option(b.enum({ Achieved: unit, Failed: unit, Expired: unit, Accepted: unit, Released: unit, Cancelled: unit })),
     owed: b.hashMap(b.enum({ Sponsor: unit, Contributor: b.u8() }), b.u128()),
     deadline: nanos,
     in_flight: b.u32(),

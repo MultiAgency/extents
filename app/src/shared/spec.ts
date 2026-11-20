@@ -266,6 +266,8 @@ function validateCalls(r: Review, s: Spec, outcomes: Map<string, z.infer<typeof 
     const o = outcomes.get(c.id);
     if (o !== "pass" && o !== "fail") continue;
     const byModel = answers.get(c.id);
+    // no model is asked about a report over max_report_bytes: a fail may have no calls, a pass never
+    if (o === "fail" && !byModel) continue;
     if (!byModel || byModel.size !== c.check.models.length) fail(`llm call for ${c.id}: a judged outcome needs every model's answer`);
     const yes = [...byModel!.values()].filter(Boolean).length;
     if (yes * 2 > c.check.models.length !== (o === "pass"))

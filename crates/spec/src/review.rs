@@ -219,7 +219,9 @@ impl Review {
 
     /// Every call judged an `llm_judge` criterion with one of its models,
     /// once per model; a judged outcome has every model's answer and
-    /// follows their majority. A skipped one may have some.
+    /// follows their majority. A skipped one may have some. A fail may also
+    /// have none: no model is asked about a report over `max_report_bytes`.
+    /// It can only fail work that way, never pass it.
     fn validate_calls(&self, spec: &Spec, outcomes: &BTreeMap<&str, Outcome>) -> Result<()> {
         let mut answers: BTreeMap<&str, BTreeMap<&str, bool>> = BTreeMap::new();
         for call in &self.llm_calls {
@@ -254,6 +256,9 @@ impl Review {
                 Some(Outcome::Fail) => false,
                 _ => continue,
             };
+            if !judged && !answers.contains_key(id) {
+                continue;
+            }
             let Some(by_model) = answers.get(id).filter(|a| a.len() == models.len()) else {
                 return Err(Error::InvalidCall {
                     id: id.to_owned(),

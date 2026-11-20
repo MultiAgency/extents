@@ -47,7 +47,10 @@ beforeAll(() => {
   app = createApp({
     model: { name: "unused", stream: () => (async function* () {})() },
     chain,
-    deploy: async (params) => (deployed.push(params), { accountId: "0sdeployed", txHash: "TX" }),
+    deploy: async (params, spec) => (
+      deployed.push({ params, spec }),
+      { accountId: "0sdeployed", txHash: "TX", ...(spec ? { published: true } : {}) }
+    ),
     checks: { fetch },
     delivered: async (_, contributors) =>
       contributors.map((contributor) => ({ contributor, text: "Attendees: 34", delivery_hash: reportHash("Attendees: 34") })),
@@ -111,13 +114,35 @@ test("drafts an objective down to its unsigned transactions and its page, at the
     params: JSON.parse(JSON.stringify(expected.params)),
     action: { action: "fund" },
   });
+  // a sponsor that signs Verifier intents funds with the same message, as a transfer intent
+  expect(value.fund_intent).toEqual({
+    intent: "transfer",
+    receiver_id: expected.accountId,
+    tokens: { "nep141:usdc.tidepool-sandbox.testnet": "5000000" },
+    msg: value.transactions[1].args.msg,
+  });
   expect((await post("/api/draft", { proposal: PROPOSAL, sponsor: "customer.testnet", salt: "short" })).status).toBe(400);
 });
 
-test("deploys through the server's deployer", async () => {
-  const valid = buildObjective(proposal.parse(PROPOSAL), "customer.testnet", "ef".repeat(32), CODE_HASH).params;
-  expect((await post("/api/deploy", { params: valid })).value).toEqual({ accountId: "0sdeployed", txHash: "TX" });
-  expect(deployed).toHaveLength(1);
+test("deploys through the server's deployer, and publishes the terms when given the spec", async () => {
+  const o = buildObjective(proposal.parse(PROPOSAL), "customer.testnet", "ef".repeat(32), CODE_HASH);
+  expect((await post("/api/deploy", { params: o.params })).value).toEqual({ accountId: "0sdeployed", txHash: "TX" });
+  expect((await post("/api/deploy", { params: o.params, spec: o.spec })).value).toEqual({
+    accountId: "0sdeployed",
+    txHash: "TX",
+    published: true,
+  });
+  expect(deployed).toEqual([
+    { params: JSON.parse(JSON.stringify(o.params)) },
+    { params: JSON.parse(JSON.stringify(o.params)), spec: o.spec },
+  ]);
+  // the spec hash in Params pins what the deployer may publish
+  const other = { ...o.spec, statement: "Something else entirely." };
+  expect(await post("/api/deploy", { params: o.params, spec: other })).toEqual({
+    status: 400,
+    value: { error: "the spec does not match params.spec_hash" },
+  });
+  expect(deployed).toHaveLength(2);
 });
 
 describe("review", () => {

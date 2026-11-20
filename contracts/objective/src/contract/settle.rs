@@ -67,6 +67,18 @@ impl Contract {
             .map_or(PromiseOrValue::Value(()), PromiseOrValue::Promise))
     }
 
+    pub(super) fn cancel(
+        &mut self,
+        signer_id: &AccountIdRef,
+        params: &Params,
+    ) -> Result<PromiseOrValue<()>> {
+        let storage = &mut self.0;
+        let state = storage.try_as_alive_mut()?.verify_mut(params)?;
+        Ok(state
+            .cancel(signer_id, params)?
+            .map_or(PromiseOrValue::Value(()), PromiseOrValue::Promise))
+    }
+
     /// Resolves the objective if the last moment to attest passed without a
     /// verdict, sends whatever is owed, and once it is settled reads its
     /// Verifier balance before deleting it.
@@ -143,6 +155,23 @@ impl State {
         self.dispatch(params)
     }
 
+    /// Returns the funding to the sponsor while no slot is committed. A
+    /// commitment locks it: from then on only a verdict, a release or the
+    /// deadline moves it. Withdrawals that empty every slot unlock it again.
+    fn cancel(&mut self, signer_id: &AccountIdRef, params: &Params) -> Result<Option<Promise>> {
+        if signer_id != params.sponsor {
+            return Err(Error::Unauthorized);
+        }
+        if self.outcome.is_some() {
+            return Err(Error::AlreadyResolved);
+        }
+        if self.committed != 0 {
+            return Err(Error::Committed);
+        }
+        self.resolve(params, Outcome::Cancelled, None)?;
+        self.dispatch(params)
+    }
+
     /// Without a verdict by the last moment to attest, the objective is
     /// accepted if it has an acceptance window and every contributor
     /// delivered, and expires otherwise.
@@ -177,7 +206,9 @@ impl State {
         let funded = mem::take(&mut self.funded);
         let allocation = match outcome {
             Outcome::Achieved | Outcome::Accepted | Outcome::Released => params.split(funded),
-            Outcome::Failed | Outcome::Expired => vec![(Recipient::Sponsor, funded)],
+            Outcome::Failed | Outcome::Expired | Outcome::Cancelled => {
+                vec![(Recipient::Sponsor, funded)]
+            }
         };
 
         let mut allocated = Payouts::default();

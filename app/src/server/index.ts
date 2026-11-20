@@ -27,10 +27,10 @@ const deployments = new Budget(10, 1);
 const app = createApp({
   model,
   chain,
-  deploy: async (params) => {
+  deploy: async (params, spec) => {
     const release = deployments.acquire();
     try {
-      return await chain.deployObjective(params);
+      return await chain.deployObjective(params, spec);
     } finally {
       release();
     }

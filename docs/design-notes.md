@@ -13,9 +13,14 @@ has no collection, voting, donation or multi-sponsor flow.
 
 ## Commitment, backups and silence
 
-Each slot commits once. A named backup may take an empty slot after `commit_by`; a committed slot
-never changes holder. Delivery is an immutable hash, recorded by that holder before the original
-deadline. Neither commitment nor delivery can be withdrawn.
+A named backup may take an empty slot after `commit_by`. A committed slot changes holder only if
+its holder withdraws, which empties it. Delivery is an immutable hash, recorded by that holder
+before the original deadline, and can never be withdrawn.
+
+Either side can give up its own claim without a judge. A holder withdraws before delivering; the
+sponsor cancels while no slot is committed, and releases once every slot has delivered. Nothing
+enforced a commitment before withdrawal existed, since no stake backs one, so withdrawal replaces
+silence until the deadline with a recorded exit. One commitment locks the funding against cancel.
 
 The last delivery can extend the evaluator's deadline by the configured acceptance window.
 It never extends funding, commitment or delivery. Without a verdict, close accepts only when

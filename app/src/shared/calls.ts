@@ -31,6 +31,8 @@ const TGAS = {
 const TOKEN_ID = /^nep245:([^:]+):(.+)$/;
 const verifierOf = (p: Params) => TOKEN_ID.exec(p.token)![1]!;
 const tokenOf = (p: Params) => TOKEN_ID.exec(p.token)![2]!;
+/** What funding tells the objective, by transaction or by intent alike. */
+const fundMsg = (params: Params) => JSON.stringify({ params, action: { action: "fund" } });
 
 export const calls = {
   /**
@@ -53,13 +55,21 @@ export const calls = {
       receiver_id: objective,
       token_id: tokenOf(params),
       amount: amount.toString(),
-      msg: JSON.stringify({ params, action: { action: "fund" } }),
+      msg: fundMsg(params),
     },
     tgas: TGAS.fund,
     yocto: 1n,
   }),
 
   commit: (objective: string, params: Params): Call => ({ receiver: objective, method: "ob_commit", args: { params }, tgas: TGAS.commit }),
+
+  /** The slot's holder gives it back, before delivering. */
+  withdraw: (objective: string, params: Params): Call => ({
+    receiver: objective,
+    method: "ob_withdraw",
+    args: { params },
+    tgas: TGAS.commit,
+  }),
 
   deliver: (objective: string, params: Params, hash: string): Call => ({
     receiver: objective,
@@ -84,6 +94,14 @@ export const calls = {
     yocto: BigInt(bond),
   }),
 
+  /** The sponsor takes the funding back while no slot is committed. One payout, so the attest budget covers it. */
+  cancel: (objective: string, params: Params): Call => ({
+    receiver: objective,
+    method: "ob_cancel",
+    args: { params },
+    tgas: attestTgas(params),
+  }),
+
   close: (objective: string, params: Params): Call => ({
     receiver: objective,
     method: "ob_close",
@@ -91,6 +109,18 @@ export const calls = {
     tgas: closeTgas(params),
   }),
 };
+
+/**
+ * The same funding as a Verifier `transfer` intent, for a sponsor who signs
+ * intents rather than NEAR transactions: signed by the sponsor (its
+ * `signer_id`) and relayed with `execute_intents`.
+ */
+export const fundIntent = (objective: string, params: Params, amount: bigint) => ({
+  intent: "transfer" as const,
+  receiver_id: objective,
+  tokens: { [tokenOf(params)]: amount.toString() },
+  msg: fundMsg(params),
+});
 
 /**
  * A call as a raw NEAR function call: gas in gas units and deposit in

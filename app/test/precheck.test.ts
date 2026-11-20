@@ -231,6 +231,16 @@ describe("/api/evaluate", () => {
     expect(parseReview(r.summary.review, SPEC as never)).toMatchObject({ verdict: "failed", missing: [second] });
   });
 
+  test("a delivered report over the spec's limit fails the judged criterion with a review the evaluator can attest", async () => {
+    let asked = 0;
+    const long = report(second, `${REPORT}\n${"x".repeat(SPEC.max_report_bytes)}`);
+    const r = await evaluate({ delivered: 3 }, [report(first), long], { judge: async () => (asked++, { answer: true, detail: "x" }) });
+    expect(r.error).toBeUndefined();
+    expect(asked).toBe(0);
+    expect(r.results.useful).toMatchObject({ outcome: "fail" });
+    expect(parseReview(r.summary.review, SPEC as never)).toMatchObject({ verdict: "failed" });
+  });
+
   test("with nothing delivered, no model is asked and the review fails on the missing reports", async () => {
     let asked = 0;
     const r = await evaluate({ delivered: 0 }, [], { judge: async () => (asked++, { answer: true, detail: "x" }) });

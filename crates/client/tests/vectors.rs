@@ -39,16 +39,20 @@ fn case(vector: &Value) -> Value {
         "calls": {
             "fund": call(&ob.fund(FUND)),
             "commit": call(&ob.commit()),
+            "withdraw": call(&ob.withdraw()),
             "deliver": call(&ob.deliver(&DELIVERY)),
             "attest": call(&ob.attest(&achieved)),
+            "cancel": call(&ob.cancel()),
             "close": call(&ob.close()),
         },
         "attest_proposal_kind": ob.attest(&achieved).proposal_kind(),
         "intents": {
             "fund": ob.fund_intent(FUND),
             "commit": ob.auth_call(Action::Commit),
+            "withdraw": ob.auth_call(Action::Withdraw),
             "deliver": ob.auth_call(Action::Deliver(DELIVERY)),
             "attest": ob.auth_call(Action::Attest(achieved)),
+            "cancel": ob.auth_call(Action::Cancel),
         },
     })
 }

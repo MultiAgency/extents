@@ -31,6 +31,11 @@ impl Objective for Contract {
             .unwrap_or_else(|err| err.panic());
     }
 
+    fn ob_withdraw(&mut self, params: Params) {
+        self.withdraw(&env::predecessor_account_id(), &params)
+            .unwrap_or_else(|err| err.panic());
+    }
+
     fn ob_deliver(&mut self, params: Params, delivery: Delivery) {
         self.deliver(&env::predecessor_account_id(), &params, delivery)
             .unwrap_or_else(|err| err.panic());
@@ -38,6 +43,11 @@ impl Objective for Contract {
 
     fn ob_attest(&mut self, params: Params, attestation: Attestation) -> PromiseOrValue<()> {
         self.attest(&env::predecessor_account_id(), &params, attestation)
+            .unwrap_or_else(|err| err.panic())
+    }
+
+    fn ob_cancel(&mut self, params: Params) -> PromiseOrValue<()> {
+        self.cancel(&env::predecessor_account_id(), &params)
             .unwrap_or_else(|err| err.panic())
     }
 

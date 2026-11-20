@@ -1278,3 +1278,243 @@ fn times_outside_i64_nanoseconds_are_refused() {
         Err(Error::InvalidTimestamp)
     ));
 }
+
+/// The sponsor takes its funding back while no slot is committed: nobody has
+/// a claim on it yet. It is recorded as `cancelled`, and the objective takes
+/// no further funding or commitment.
+#[test]
+fn sponsor_cancels_while_no_slot_is_committed() {
+    let p = params(&[700_000, 300_000], 3600);
+    let mut contract = deploy(&p);
+    fund(&mut contract, &p, "sponsor.test", 1_001);
+
+    for other in ["evaluator.test", "c0.test", "anyone.test"] {
+        call_from(other, vec![]);
+        assert!(matches!(
+            contract.cancel(&id(other), &p),
+            Err(Error::Unauthorized)
+        ));
+    }
+
+    call_from("sponsor.test", vec![]);
+    assert!(matches!(
+        contract.ob_cancel(p.clone()),
+        PromiseOrValue::Promise(_)
+    ));
+    assert_eq!(
+        event("resolved"),
+        serde_json::json!({"outcome": "cancelled", "amounts": {"sponsor.test": "1001"}})
+    );
+    let s = contract.ob_view().no_verify();
+    assert_eq!((s.outcome, s.funded), (Some(Outcome::Cancelled), 0));
+
+    assert!(matches!(
+        contract.cancel(&id("sponsor.test"), &p),
+        Err(Error::AlreadyResolved)
+    ));
+    call_from("c0.test", vec![]);
+    assert!(matches!(
+        contract.commit(&id("c0.test"), &p),
+        Err(Error::AlreadyResolved)
+    ));
+}
+
+/// A commitment locks the funding: from then on the sponsor cannot cancel.
+/// Withdrawals that empty every slot unlock it again.
+#[test]
+fn a_commitment_locks_the_funding_until_it_is_withdrawn() {
+    let p = params(&[HALF, HALF], 3600);
+    let mut contract = deploy(&p);
+    fund(&mut contract, &p, "sponsor.test", 100);
+    commit_all(&mut contract, &p);
+
+    call_from("sponsor.test", vec![]);
+    assert!(matches!(
+        contract.cancel(&id("sponsor.test"), &p),
+        Err(Error::Committed)
+    ));
+
+    call_from("c0.test", vec![]);
+    contract.ob_withdraw(p.clone());
+    call_from("sponsor.test", vec![]);
+    assert!(
+        matches!(
+            contract.cancel(&id("sponsor.test"), &p),
+            Err(Error::Committed)
+        ),
+        "c1.test is still committed"
+    );
+
+    call_from("c1.test", vec![]);
+    contract.ob_withdraw(p.clone());
+    call_from("sponsor.test", vec![]);
+    contract.ob_cancel(p).detach_if_promise();
+    assert_eq!(event("resolved")["outcome"], "cancelled");
+}
+
+/// An unfunded objective cancels with nothing to send.
+#[test]
+fn cancelling_an_unfunded_objective_sends_nothing() {
+    let p = params(&[1_000_000], 3600);
+    let mut contract = deploy(&p);
+    call_from("sponsor.test", vec![]);
+    assert!(matches!(contract.ob_cancel(p), PromiseOrValue::Value(())));
+    assert_eq!(
+        event("resolved"),
+        serde_json::json!({"outcome": "cancelled", "amounts": {}})
+    );
+}
+
+#[test]
+#[should_panic(expected = "already resolved")]
+fn rejects_funding_after_a_cancel() {
+    let p = params(&[1_000_000], 3600);
+    let mut contract = deploy(&p);
+    call_from("sponsor.test", vec![]);
+    contract.ob_cancel(p.clone()).detach_if_promise();
+    fund(&mut contract, &p, "sponsor.test", 10);
+}
+
+/// Only whoever holds a slot gives it back, only before delivering. The slot
+/// is then empty: the same contributor may commit to it again.
+#[test]
+fn a_holder_withdraws_before_delivering_and_the_slot_reopens() {
+    let p = params(&[HALF, HALF], 3600);
+    let mut contract = deploy(&p);
+
+    call_from("c0.test", vec![]);
+    assert!(matches!(
+        contract.withdraw(&id("c0.test"), &p),
+        Err(Error::NothingToWithdraw)
+    ));
+    call_from("sponsor.test", vec![]);
+    assert!(matches!(
+        contract.withdraw(&id("sponsor.test"), &p),
+        Err(Error::Unauthorized)
+    ));
+
+    commit_all(&mut contract, &p);
+    call_from("c0.test", vec![]);
+    contract.ob_withdraw(p.clone());
+    assert_eq!(
+        event("withdrawn"),
+        serde_json::json!({"contributor": "c0.test"})
+    );
+    assert_eq!(contract.ob_view().no_verify().committed, 0b10);
+    assert!(matches!(
+        contract.deliver(&id("c0.test"), &p, Delivery { hash: [1; 32] }),
+        Err(Error::NotCommittedYet)
+    ));
+
+    contract.ob_commit(p.clone());
+    assert_eq!(contract.ob_view().no_verify().committed, 0b11);
+
+    // a delivery is final: it can never be withdrawn
+    contract.ob_deliver(p.clone(), Delivery { hash: [1; 32] });
+    assert!(matches!(
+        contract.withdraw(&id("c0.test"), &p),
+        Err(Error::AlreadyDelivered)
+    ));
+    assert_eq!(contract.ob_view().no_verify().delivered, 0b01);
+}
+
+#[test]
+fn nobody_withdraws_after_a_verdict_or_the_deadline() {
+    let p = params(&[1_000_000], 3600);
+    let mut contract = deploy(&p);
+    commit_all(&mut contract, &p);
+    call_from("evaluator.test", vec![]);
+    contract
+        .ob_attest(p.clone(), Verdict::Failed.into())
+        .detach_if_promise();
+    call_from("c0.test", vec![]);
+    assert!(matches!(
+        contract.withdraw(&id("c0.test"), &p),
+        Err(Error::AlreadyResolved)
+    ));
+
+    let late = params(&[1_000_000], -1);
+    let mut contract = deploy(&late);
+    state(&mut contract).committed = 1;
+    call_from("c0.test", vec![]);
+    assert!(matches!(
+        contract.withdraw(&id("c0.test"), &late),
+        Err(Error::DeadlineExpired)
+    ));
+}
+
+/// A slot's backup can take it once its contributor withdraws, and only the
+/// one who holds a slot can give it back. When the backup leaves in turn, the
+/// slot is the listed contributor's to take again.
+#[test]
+fn a_withdrawn_slot_passes_between_contributor_and_backup() {
+    let p = backed(-1);
+    let mut contract = deploy(&p);
+    call_from("c1.test", vec![]);
+    contract.ob_commit(p.clone());
+    call_from("b1.test", vec![]);
+    assert!(matches!(
+        contract.withdraw(&id("b1.test"), &p),
+        Err(Error::Unauthorized)
+    ));
+
+    call_from("c1.test", vec![]);
+    contract.ob_withdraw(p.clone());
+    call_from("b1.test", vec![]);
+    contract.ob_commit(p.clone());
+    let s = contract.ob_view().no_verify();
+    assert_eq!((s.committed, s.taken), (0b10, 0b10));
+    call_from("c1.test", vec![]);
+    assert!(matches!(
+        contract.withdraw(&id("c1.test"), &p),
+        Err(Error::Unauthorized)
+    ));
+
+    call_from("b1.test", vec![]);
+    contract.ob_withdraw(p.clone());
+    let s = contract.ob_view().no_verify();
+    assert_eq!((s.committed, s.taken), (0, 0));
+    call_from("c1.test", vec![]);
+    contract.ob_commit(p);
+    let s = contract.ob_view().no_verify();
+    assert_eq!((s.committed, s.taken), (0b10, 0));
+}
+
+/// Both travel through a signed intent, like every other act.
+#[test]
+fn withdraws_and_cancels_through_auth_call() {
+    let p = params(&[1_000_000], 3600);
+    let mut contract = deploy(&p);
+    fund(&mut contract, &p, "sponsor.test", 50);
+    let msg = |action| {
+        serde_json::to_string(&Message {
+            params: p.clone(),
+            action,
+        })
+        .unwrap()
+    };
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&msg(Action::Withdraw)).unwrap()["action"],
+        serde_json::json!({"action": "withdraw"})
+    );
+
+    call_from(VERIFIER, vec![]);
+    contract
+        .on_auth(id("c0.test"), msg(Action::Commit))
+        .detach_if_promise();
+    assert!(matches!(
+        contract.internal_on_auth(&id("sponsor.test"), &msg(Action::Cancel)),
+        Err(Error::Committed)
+    ));
+    contract
+        .on_auth(id("c0.test"), msg(Action::Withdraw))
+        .detach_if_promise();
+    assert_eq!(contract.ob_view().no_verify().committed, 0);
+    contract
+        .on_auth(id("sponsor.test"), msg(Action::Cancel))
+        .detach_if_promise();
+    assert_eq!(
+        event("resolved"),
+        serde_json::json!({"outcome": "cancelled", "amounts": {"sponsor.test": "50"}})
+    );
+}

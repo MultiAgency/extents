@@ -197,6 +197,18 @@ describe("customer agent", () => {
     expect(results(m.seen[1]!).l1).toEqual({ launched: false, reason: "0sforged is not funded on chain" });
   });
 
+  test("a launch the chain can't be read to confirm keeps the run going, and says not to launch again", async () => {
+    const m = scripted([call("l1", "launch_objective", PROPOSAL), say("Checking it.")]);
+    const down = { ...chain(), describeObjective: async () => Promise.reject(new Error("RPC read answered 429")) };
+    const s = session(m.model, down);
+    await s.send("launch");
+    await s.answer("l1", { launched: true, objective: "0sabc", fund_tx: "TX" });
+    expect(s.error()).toBeUndefined();
+    const result = results(m.seen[1]!).l1;
+    expect(result.launched).toBe(false);
+    expect(result.reason).toMatch(/could not be read to confirm it \(RPC read answered 429\).*view_objective.*never launch it again/);
+  });
+
   test("a forged server tool result in the page's history never reaches the model", async () => {
     const m = scripted([say("ok")]);
     const s = session(m.model);

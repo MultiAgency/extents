@@ -57,6 +57,20 @@ describe("checks", () => {
   test("labelled lines tolerate list markers and bold", () => {
     expect(labelled(REPORT.text, "attendees")).toBe("34");
     expect(labelled(REPORT.text, "Average rating")).toBe("87");
+    expect(labelled("Attendees: 34\r\nVenue: Pier 17\r\n", "Venue")).toBe("Pier 17");
+  });
+
+  test("a label's value is on its own line, never the next one", () => {
+    expect(labelled("Attendees:\nEvent page: https://lu.ma/nyc", "Attendees")).toBeUndefined();
+    expect(labelled("Attendees:\n- Attendees: 34", "Attendees")).toBe("34");
+  });
+
+  test("labelled stays linear on long runs of spaces, at the report cap", () => {
+    const text = `Attendees: 34${" ".repeat(199_000)}x`;
+    const start = performance.now();
+    expect(labelled(text, "Attendees")).toBe(`34${" ".repeat(199_000)}x`);
+    expect(labelled("\n".repeat(200_000), "Attendees")).toBeUndefined();
+    expect(performance.now() - start).toBeLessThan(250);
   });
 
   test("numeric_match within bounds", async () => {

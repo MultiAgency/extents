@@ -19,4 +19,6 @@ pub enum Action {
     Commit,
     Deliver(Delivery),
     Attest(Attestation),
+    Withdraw,
+    Cancel,
 }

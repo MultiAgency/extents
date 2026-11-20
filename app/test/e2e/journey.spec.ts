@@ -94,3 +94,21 @@ test("the workspace starts from a brief in one click", async ({ page }, info) =>
   await page.getByRole("button", { name: /^I have 2 USDC/ }).click();
   await expect(page.getByRole("log", { name: "Conversation" })).toContainText("I have 2 USDC");
 });
+
+test("once everyone delivered, the sponsor may release the payment without the evaluator", async ({ page }) => {
+  const chain = await setup(page, { txs: [], published: true, funded: true }, "customer.testnet");
+  const set = await objective(page, { committed: 3, delivered: 1 });
+  await page.goto(`/o/${ADDRESS}`);
+  await expect(next(page)).toContainText("Waiting for venue.testnet to deliver a report.");
+  await expect(page.getByRole("region", { name: "Release payment" })).toHaveCount(0);
+
+  set({ committed: 3, delivered: 3 });
+  await page.reload();
+  await expect(next(page)).toContainText("Waiting for judge.testnet to judge the deliveries and attest a verdict.");
+  await next(page).getByRole("link", { name: "Release payment" }).click();
+  const release = page.getByRole("region", { name: "Release payment" });
+  await expect(release).toBeInViewport();
+  await release.getByRole("button", { name: "Release payment" }).click();
+  await expect.poll(() => chain.txs.map((t) => t.calls[0]!.method)).toEqual(["ob_attest"]);
+  expect(chain.txs[0]!.calls[0]).toMatchObject({ receiver: ADDRESS, args: { params: PARAMS, attestation: { verdict: "achieved" } } });
+});

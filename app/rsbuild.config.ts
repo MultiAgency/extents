@@ -12,6 +12,7 @@ const { publicVars } = loadEnv({ cwd: "..", prefixes: ["PUBLIC_"] });
 const browserEnv = {
   "process.env.PUBLIC_E2E": '""',
   "process.env.PUBLIC_OBJECTIVE_CODE_HASH": '""',
+  "process.env.PUBLIC_SPONSOR_RELEASE": '""',
   ...publicVars,
 };
 

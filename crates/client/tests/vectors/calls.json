@@ -35,6 +35,25 @@
         "gas": "10000000000000",
         "deposit": "0"
       },
+      "withdraw": {
+        "receiver": "0s1b919b792876b8c6459fd059f2686bf34c4cd3d9",
+        "method": "ob_withdraw",
+        "args": {
+          "params": {
+            "sponsor": "sponsor.near",
+            "token": "nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "evaluator": "evaluator.near",
+            "contributors": {
+              "alice.near": 1000000
+            },
+            "deadline": "2027-01-15T08:00:00Z",
+            "spec_hash": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+          }
+        },
+        "gas": "10000000000000",
+        "deposit": "0"
+      },
       "deliver": {
         "receiver": "0s1b919b792876b8c6459fd059f2686bf34c4cd3d9",
         "method": "ob_deliver",
@@ -74,6 +93,25 @@
           },
           "attestation": {
             "verdict": "achieved"
+          }
+        },
+        "gas": "75000000000000",
+        "deposit": "0"
+      },
+      "cancel": {
+        "receiver": "0s1b919b792876b8c6459fd059f2686bf34c4cd3d9",
+        "method": "ob_cancel",
+        "args": {
+          "params": {
+            "sponsor": "sponsor.near",
+            "token": "nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "evaluator": "evaluator.near",
+            "contributors": {
+              "alice.near": 1000000
+            },
+            "deadline": "2027-01-15T08:00:00Z",
+            "spec_hash": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "salt": "0101010101010101010101010101010101010101010101010101010101010101"
           }
         },
         "gas": "75000000000000",
@@ -126,6 +164,11 @@
         "contract_id": "0s1b919b792876b8c6459fd059f2686bf34c4cd3d9",
         "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":1000000},\"deadline\":\"2027-01-15T08:00:00Z\",\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"commit\"}}"
       },
+      "withdraw": {
+        "intent": "auth_call",
+        "contract_id": "0s1b919b792876b8c6459fd059f2686bf34c4cd3d9",
+        "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":1000000},\"deadline\":\"2027-01-15T08:00:00Z\",\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"withdraw\"}}"
+      },
       "deliver": {
         "intent": "auth_call",
         "contract_id": "0s1b919b792876b8c6459fd059f2686bf34c4cd3d9",
@@ -135,6 +178,12 @@
         "intent": "auth_call",
         "contract_id": "0s1b919b792876b8c6459fd059f2686bf34c4cd3d9",
         "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":1000000},\"deadline\":\"2027-01-15T08:00:00Z\",\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"attest\",\"data\":{\"verdict\":\"achieved\"}}}",
+        "min_gas": "75000000000000"
+      },
+      "cancel": {
+        "intent": "auth_call",
+        "contract_id": "0s1b919b792876b8c6459fd059f2686bf34c4cd3d9",
+        "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":1000000},\"deadline\":\"2027-01-15T08:00:00Z\",\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"cancel\"}}",
         "min_gas": "75000000000000"
       }
     }
@@ -159,6 +208,28 @@
       "commit": {
         "receiver": "0sab43c8a13e8917892d94fc8e8f0fe1fee2a79a9a",
         "method": "ob_commit",
+        "args": {
+          "params": {
+            "sponsor": "sponsor.near",
+            "token": "nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "evaluator": "evaluator.near",
+            "contributors": {
+              "alice.near": 700000,
+              "bob.near": 300000
+            },
+            "deadline": "2027-01-15T08:00:00Z",
+            "acceptance_window_secs": 86400,
+            "spec_hash": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "auth_caller": "intents.near",
+            "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+          }
+        },
+        "gas": "10000000000000",
+        "deposit": "0"
+      },
+      "withdraw": {
+        "receiver": "0sab43c8a13e8917892d94fc8e8f0fe1fee2a79a9a",
+        "method": "ob_withdraw",
         "args": {
           "params": {
             "sponsor": "sponsor.near",
@@ -228,6 +299,28 @@
         "gas": "90000000000000",
         "deposit": "0"
       },
+      "cancel": {
+        "receiver": "0sab43c8a13e8917892d94fc8e8f0fe1fee2a79a9a",
+        "method": "ob_cancel",
+        "args": {
+          "params": {
+            "sponsor": "sponsor.near",
+            "token": "nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "evaluator": "evaluator.near",
+            "contributors": {
+              "alice.near": 700000,
+              "bob.near": 300000
+            },
+            "deadline": "2027-01-15T08:00:00Z",
+            "acceptance_window_secs": 86400,
+            "spec_hash": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "auth_caller": "intents.near",
+            "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+          }
+        },
+        "gas": "90000000000000",
+        "deposit": "0"
+      },
       "close": {
         "receiver": "0sab43c8a13e8917892d94fc8e8f0fe1fee2a79a9a",
         "method": "ob_close",
@@ -278,6 +371,11 @@
         "contract_id": "0sab43c8a13e8917892d94fc8e8f0fe1fee2a79a9a",
         "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":700000,\"bob.near\":300000},\"deadline\":\"2027-01-15T08:00:00Z\",\"acceptance_window_secs\":86400,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"auth_caller\":\"intents.near\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"commit\"}}"
       },
+      "withdraw": {
+        "intent": "auth_call",
+        "contract_id": "0sab43c8a13e8917892d94fc8e8f0fe1fee2a79a9a",
+        "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":700000,\"bob.near\":300000},\"deadline\":\"2027-01-15T08:00:00Z\",\"acceptance_window_secs\":86400,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"auth_caller\":\"intents.near\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"withdraw\"}}"
+      },
       "deliver": {
         "intent": "auth_call",
         "contract_id": "0sab43c8a13e8917892d94fc8e8f0fe1fee2a79a9a",
@@ -287,6 +385,12 @@
         "intent": "auth_call",
         "contract_id": "0sab43c8a13e8917892d94fc8e8f0fe1fee2a79a9a",
         "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":700000,\"bob.near\":300000},\"deadline\":\"2027-01-15T08:00:00Z\",\"acceptance_window_secs\":86400,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"auth_caller\":\"intents.near\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"attest\",\"data\":{\"verdict\":\"achieved\"}}}",
+        "min_gas": "90000000000000"
+      },
+      "cancel": {
+        "intent": "auth_call",
+        "contract_id": "0sab43c8a13e8917892d94fc8e8f0fe1fee2a79a9a",
+        "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":700000,\"bob.near\":300000},\"deadline\":\"2027-01-15T08:00:00Z\",\"acceptance_window_secs\":86400,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"auth_caller\":\"intents.near\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"cancel\"}}",
         "min_gas": "90000000000000"
       }
     }
@@ -311,6 +415,36 @@
       "commit": {
         "receiver": "0s0831c0430c769ab3c0f2dcc8aa30043e27d65e12",
         "method": "ob_commit",
+        "args": {
+          "params": {
+            "sponsor": "sponsor.near",
+            "token": "nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "evaluator": "evaluator.near",
+            "contributors": {
+              "c0.near": 100000,
+              "c1.near": 100000,
+              "c2.near": 100000,
+              "c3.near": 100000,
+              "c4.near": 100000,
+              "c5.near": 100000,
+              "c6.near": 100000,
+              "c7.near": 100000,
+              "c8.near": 100000,
+              "c9.near": 100000
+            },
+            "deadline": "2027-01-15T08:00:00Z",
+            "acceptance_window_secs": 1,
+            "spec_hash": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "auth_caller": "intents.near",
+            "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+          }
+        },
+        "gas": "10000000000000",
+        "deposit": "0"
+      },
+      "withdraw": {
+        "receiver": "0s0831c0430c769ab3c0f2dcc8aa30043e27d65e12",
+        "method": "ob_withdraw",
         "args": {
           "params": {
             "sponsor": "sponsor.near",
@@ -404,6 +538,36 @@
         "gas": "210000000000000",
         "deposit": "0"
       },
+      "cancel": {
+        "receiver": "0s0831c0430c769ab3c0f2dcc8aa30043e27d65e12",
+        "method": "ob_cancel",
+        "args": {
+          "params": {
+            "sponsor": "sponsor.near",
+            "token": "nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "evaluator": "evaluator.near",
+            "contributors": {
+              "c0.near": 100000,
+              "c1.near": 100000,
+              "c2.near": 100000,
+              "c3.near": 100000,
+              "c4.near": 100000,
+              "c5.near": 100000,
+              "c6.near": 100000,
+              "c7.near": 100000,
+              "c8.near": 100000,
+              "c9.near": 100000
+            },
+            "deadline": "2027-01-15T08:00:00Z",
+            "acceptance_window_secs": 1,
+            "spec_hash": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "auth_caller": "intents.near",
+            "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+          }
+        },
+        "gas": "210000000000000",
+        "deposit": "0"
+      },
       "close": {
         "receiver": "0s0831c0430c769ab3c0f2dcc8aa30043e27d65e12",
         "method": "ob_close",
@@ -462,6 +626,11 @@
         "contract_id": "0s0831c0430c769ab3c0f2dcc8aa30043e27d65e12",
         "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"c0.near\":100000,\"c1.near\":100000,\"c2.near\":100000,\"c3.near\":100000,\"c4.near\":100000,\"c5.near\":100000,\"c6.near\":100000,\"c7.near\":100000,\"c8.near\":100000,\"c9.near\":100000},\"deadline\":\"2027-01-15T08:00:00Z\",\"acceptance_window_secs\":1,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"auth_caller\":\"intents.near\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"commit\"}}"
       },
+      "withdraw": {
+        "intent": "auth_call",
+        "contract_id": "0s0831c0430c769ab3c0f2dcc8aa30043e27d65e12",
+        "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"c0.near\":100000,\"c1.near\":100000,\"c2.near\":100000,\"c3.near\":100000,\"c4.near\":100000,\"c5.near\":100000,\"c6.near\":100000,\"c7.near\":100000,\"c8.near\":100000,\"c9.near\":100000},\"deadline\":\"2027-01-15T08:00:00Z\",\"acceptance_window_secs\":1,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"auth_caller\":\"intents.near\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"withdraw\"}}"
+      },
       "deliver": {
         "intent": "auth_call",
         "contract_id": "0s0831c0430c769ab3c0f2dcc8aa30043e27d65e12",
@@ -471,6 +640,12 @@
         "intent": "auth_call",
         "contract_id": "0s0831c0430c769ab3c0f2dcc8aa30043e27d65e12",
         "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"c0.near\":100000,\"c1.near\":100000,\"c2.near\":100000,\"c3.near\":100000,\"c4.near\":100000,\"c5.near\":100000,\"c6.near\":100000,\"c7.near\":100000,\"c8.near\":100000,\"c9.near\":100000},\"deadline\":\"2027-01-15T08:00:00Z\",\"acceptance_window_secs\":1,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"auth_caller\":\"intents.near\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"attest\",\"data\":{\"verdict\":\"achieved\"}}}",
+        "min_gas": "210000000000000"
+      },
+      "cancel": {
+        "intent": "auth_call",
+        "contract_id": "0s0831c0430c769ab3c0f2dcc8aa30043e27d65e12",
+        "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"c0.near\":100000,\"c1.near\":100000,\"c2.near\":100000,\"c3.near\":100000,\"c4.near\":100000,\"c5.near\":100000,\"c6.near\":100000,\"c7.near\":100000,\"c8.near\":100000,\"c9.near\":100000},\"deadline\":\"2027-01-15T08:00:00Z\",\"acceptance_window_secs\":1,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"auth_caller\":\"intents.near\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"cancel\"}}",
         "min_gas": "210000000000000"
       }
     }
@@ -495,6 +670,31 @@
       "commit": {
         "receiver": "0s220033a60d29e002eb89c638fb15c13ec6c1f8f6",
         "method": "ob_commit",
+        "args": {
+          "params": {
+            "sponsor": "sponsor.near",
+            "token": "nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "evaluator": "evaluator.near",
+            "contributors": {
+              "alice.near": 700000,
+              "bob.near": 300000
+            },
+            "backups": {
+              "bob.near": "carol.near"
+            },
+            "deadline": "2027-01-15T08:00:00Z",
+            "commit_by": "2027-01-03T18:13:20Z",
+            "acceptance_window_secs": 3600,
+            "spec_hash": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+          }
+        },
+        "gas": "10000000000000",
+        "deposit": "0"
+      },
+      "withdraw": {
+        "receiver": "0s220033a60d29e002eb89c638fb15c13ec6c1f8f6",
+        "method": "ob_withdraw",
         "args": {
           "params": {
             "sponsor": "sponsor.near",
@@ -573,6 +773,31 @@
         "gas": "90000000000000",
         "deposit": "0"
       },
+      "cancel": {
+        "receiver": "0s220033a60d29e002eb89c638fb15c13ec6c1f8f6",
+        "method": "ob_cancel",
+        "args": {
+          "params": {
+            "sponsor": "sponsor.near",
+            "token": "nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+            "evaluator": "evaluator.near",
+            "contributors": {
+              "alice.near": 700000,
+              "bob.near": 300000
+            },
+            "backups": {
+              "bob.near": "carol.near"
+            },
+            "deadline": "2027-01-15T08:00:00Z",
+            "commit_by": "2027-01-03T18:13:20Z",
+            "acceptance_window_secs": 3600,
+            "spec_hash": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+            "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+          }
+        },
+        "gas": "90000000000000",
+        "deposit": "0"
+      },
       "close": {
         "receiver": "0s220033a60d29e002eb89c638fb15c13ec6c1f8f6",
         "method": "ob_close",
@@ -626,6 +851,11 @@
         "contract_id": "0s220033a60d29e002eb89c638fb15c13ec6c1f8f6",
         "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":700000,\"bob.near\":300000},\"backups\":{\"bob.near\":\"carol.near\"},\"deadline\":\"2027-01-15T08:00:00Z\",\"commit_by\":\"2027-01-03T18:13:20Z\",\"acceptance_window_secs\":3600,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"commit\"}}"
       },
+      "withdraw": {
+        "intent": "auth_call",
+        "contract_id": "0s220033a60d29e002eb89c638fb15c13ec6c1f8f6",
+        "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":700000,\"bob.near\":300000},\"backups\":{\"bob.near\":\"carol.near\"},\"deadline\":\"2027-01-15T08:00:00Z\",\"commit_by\":\"2027-01-03T18:13:20Z\",\"acceptance_window_secs\":3600,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"withdraw\"}}"
+      },
       "deliver": {
         "intent": "auth_call",
         "contract_id": "0s220033a60d29e002eb89c638fb15c13ec6c1f8f6",
@@ -635,6 +865,12 @@
         "intent": "auth_call",
         "contract_id": "0s220033a60d29e002eb89c638fb15c13ec6c1f8f6",
         "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":700000,\"bob.near\":300000},\"backups\":{\"bob.near\":\"carol.near\"},\"deadline\":\"2027-01-15T08:00:00Z\",\"commit_by\":\"2027-01-03T18:13:20Z\",\"acceptance_window_secs\":3600,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"attest\",\"data\":{\"verdict\":\"achieved\"}}}",
+        "min_gas": "90000000000000"
+      },
+      "cancel": {
+        "intent": "auth_call",
+        "contract_id": "0s220033a60d29e002eb89c638fb15c13ec6c1f8f6",
+        "msg": "{\"params\":{\"sponsor\":\"sponsor.near\",\"token\":\"nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1\",\"evaluator\":\"evaluator.near\",\"contributors\":{\"alice.near\":700000,\"bob.near\":300000},\"backups\":{\"bob.near\":\"carol.near\"},\"deadline\":\"2027-01-15T08:00:00Z\",\"commit_by\":\"2027-01-03T18:13:20Z\",\"acceptance_window_secs\":3600,\"spec_hash\":\"5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a\",\"salt\":\"0101010101010101010101010101010101010101010101010101010101010101\"},\"action\":{\"action\":\"cancel\"}}",
         "min_gas": "90000000000000"
       }
     }

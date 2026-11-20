@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import vectors from "../../contracts/objective/tests/vectors/params.json" with { type: "json" };
 import { deployObjective } from "../src/server/chain.ts";
+import { buildObjective } from "../src/shared/objective.ts";
 import { objectiveAccountId, type Params } from "../src/shared/params.ts";
 
 const calls = vi.hoisted(() => ({
   exists: vi.fn(),
   stateInit: vi.fn(),
   send: vi.fn(),
+  functionCall: vi.fn(),
+  publish: vi.fn(),
 }));
 
 vi.mock("near-kit", async (original) => ({
@@ -19,13 +22,18 @@ vi.mock("near-kit", async (original) => ({
           calls.stateInit(...args);
           return { send: calls.send };
         },
+        functionCall: (...args: unknown[]) => {
+          calls.functionCall(...args);
+          return { send: calls.publish };
+        },
       };
     }
   },
 }));
 
 beforeEach(() => {
-  vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    if (url.includes("/v0/latest/")) return Response.json({ entries: [] }); // nothing published yet
     const { params } = JSON.parse(init.body as string);
     expect(params.request_type).toBe("view_account");
     return Response.json(
@@ -66,4 +74,43 @@ test("an existing derived objective needs no deployer credentials", async () => 
   calls.exists.mockResolvedValueOnce(true);
   expect(await deployObjective(vector.params as unknown as Params)).toEqual({ accountId: vector.account_id });
   expect(calls.stateInit).not.toHaveBeenCalled();
+});
+
+test("with the spec, the deployer publishes the terms, its receipt failing by design", async () => {
+  const code = vectors[0]!.code_hash;
+  vi.stubEnv("PUBLIC_OBJECTIVE_CODE_HASH", code);
+  vi.stubEnv("DEPLOYER_ACCOUNT_ID", "deployer.testnet");
+  vi.stubEnv("DEPLOYER_PRIVATE_KEY", "ed25519:mock-key");
+  const o = buildObjective(
+    {
+      spec: {
+        v: 1,
+        statement: "A report",
+        criteria: [{ id: "t", description: "Has it", check: { kind: "contains", phrase: "x", absent: false } }],
+      },
+      contributors: { "worker.testnet": 100 },
+      evaluator: "judge.testnet",
+      deadline: "2027-03-01T00:00:00Z",
+      amount: "1",
+    },
+    "0x1111111111111111111111111111111111111111",
+    "cd".repeat(32),
+    code,
+    0,
+  );
+  calls.exists.mockResolvedValue(true); // already deployed: only the terms are missing
+  calls.publish.mockRejectedValue(new Error("MethodResolveError(MethodNotFound)"));
+
+  expect(await deployObjective(o.params, o.spec)).toEqual({ accountId: o.accountId, published: true });
+  expect(calls.stateInit).not.toHaveBeenCalled();
+  expect(calls.functionCall).toHaveBeenCalledWith(
+    o.accountId,
+    "__fastdata_kv",
+    { "extents/v1/params": o.params, "extents/v1/spec": o.spec },
+    { gas: "20 Tgas" },
+  );
+
+  // a spec the terms don't commit to is never published
+  await expect(deployObjective(o.params, { ...o.spec, statement: "Other" })).rejects.toThrow("does not match params.spec_hash");
+  expect(calls.functionCall).toHaveBeenCalledTimes(1);
 });

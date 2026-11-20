@@ -16,6 +16,10 @@ pub enum Event<'a> {
     #[event_version("0.1.0")]
     Committed(CommittedEvent<'a>),
 
+    /// The slot's holder gave it back; it is empty again.
+    #[event_version("0.1.0")]
+    Withdrawn(CommittedEvent<'a>),
+
     #[event_version("0.1.0")]
     Delivered(DeliveredEvent<'a>),
 

@@ -29,6 +29,14 @@ export function objectiveCodeHash(): string {
   return hash;
 }
 
+/**
+ * Whether the published build lets the sponsor release its own funding
+ * (`ob_attest` achieved, resolving as `released`). Set `PUBLIC_SPONSOR_RELEASE=1`
+ * together with the code hash of a build that has it; an older build refuses
+ * the call.
+ */
+export const sponsorMayRelease = (): boolean => process.env.PUBLIC_SPONSOR_RELEASE === "1";
+
 /** FastData's method: a call to it is indexed even though the objective has no such method. */
 export const FASTDATA_METHOD = "__fastdata_kv";
 

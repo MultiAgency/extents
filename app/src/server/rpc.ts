@@ -3,6 +3,8 @@ import { RPC_URL } from "../shared/config.ts";
 import { abortable, readCapped, withTimeout } from "./bounded.ts";
 
 export const RPC_READ_MS = 15_000;
+/** The node the server reads; `NEAR_RPC_URL` points tests at a stand-in chain. */
+export const RPC = process.env.NEAR_RPC_URL || RPC_URL;
 const MAX_REPLY_BYTES = 4 * 1024 * 1024;
 
 export class RpcReadError extends Error {
@@ -14,7 +16,7 @@ export class RpcReadError extends Error {
 export async function query<T>(params: Record<string, unknown>, signal?: AbortSignal): Promise<T> {
   const deadline = withTimeout(signal, RPC_READ_MS);
   return abortable(deadline, async () => {
-    const response = await fetch(RPC_URL, {
+    const response = await fetch(RPC, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: "read", method: "query", params: { finality: "final", ...params } }),

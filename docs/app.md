@@ -90,7 +90,7 @@ be checked against the same bytes. There is no replay tool yet. Draft checks do 
 ## For agents
 
 - The agent API, plain JSON: `POST /api/tools/:name` (the customer agent's tools), `POST /api/draft` (exact `Params`,
-  address, unsigned transactions, and a launch link whose fragment carries the terms to the sponsor's browser), `POST /api/deploy`, `POST /api/objective/:id/contribute` (a contributor's commit, delivery and report publication, one step at a time), and `POST /api/objective/:id/review` (the review and the
+  address, unsigned transactions, and a launch link whose fragment carries the terms to the sponsor's browser), `POST /api/deploy` (with the spec, the deployer also publishes the terms; the reader accepts the spec from the sponsor or the deployer, pinned by `spec_hash` either way, so changing `DEPLOYER_ACCOUNT_ID` leaves terms the old deployer published unread), `POST /api/objective/:id/contribute` (a contributor's commit, delivery and report publication, one step at a time), and `POST /api/objective/:id/review` (the review and the
   unsigned calls that publish and attest it, or propose it to a DAO evaluator). Agents prepare; wallets and DAOs sign.
   Every answer about an objective links its page, `/o/<objective>`, where people act in their own wallets.
   Every unsigned call also carries `near_call`: the same call with gas in gas units and deposit in yoctoNEAR, under the
@@ -171,6 +171,10 @@ The server derives StateInit from Params and this immutable code hash. It needs 
 nor a local WASM at runtime. Build and sandbox-test the exact WASM before publishing its hash.
 `app/scripts/create-release.ts` can generate offline artifact/source metadata for release records;
 that metadata is not a runtime gate or proof that tests ran.
+
+`PUBLIC_SPONSOR_RELEASE=1` shows the sponsor a "Release payment" control once every contributor delivered: an
+`ob_attest` achieved signed by the sponsor, which resolves the objective as `released`. Set it only with the code hash of
+a build that has that outcome; the published `4GxG7Nye…` build refuses a sponsor's attestation.
 
 ## Delivery proof
 

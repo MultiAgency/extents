@@ -445,6 +445,8 @@ pub enum Outcome {
     /// Every contributor delivered, and the sponsor released the payment
     /// itself, without the evaluator.
     Released,
+    /// The sponsor took its funding back while no slot was committed.
+    Cancelled,
 }
 
 impl From<Verdict> for Outcome {

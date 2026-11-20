@@ -22,7 +22,8 @@ unless they sign with tools of their own.
 4. **Draft it** with `POST /api/draft`. You get the objective's address, its page, its exact `Params`, and two unsigned
    transactions. Keep the returned `params.salt`: drafting again with it gives the same objective.
 5. **Deploy it** with `POST /api/deploy {params}`, unless the sponsor will launch from the page, which deploys it. It
-   is idempotent and cannot change the terms.
+   is idempotent and cannot change the terms. For a sponsor with no NEAR key, send `{params, spec}`: this app then
+   publishes the terms too, and the sponsor only funds, by signing `fund_intent`.
 6. **Send the sponsor the `page` link.** They review the terms there and launch it in their browser wallet: it deploys,
    publishes and funds in order, and resumes after a reload. A sponsor who signs with tools of their own signs the two
    transactions instead, in order: `publish` (its receipt fails by design; FastData indexes it anyway), then `fund`.
@@ -87,9 +88,9 @@ Agent API's `POST /v1/agents/{agent_id}/native/near/call`.
    indexed it all the same. Do not send it again.
 4. **Payouts arrive on the account's public NEAR Intents balance.** `shield` moves them into its confidential balance.
 
-What that account cannot do: sign `fund`. Its NEAR key never calls the NEAR Intents contracts. Its EVM or Solana key can
-sign a transfer intent that funds an objective, but this app cannot yet publish the terms for a sponsor that has no
-NEAR key, so an agent account cannot be the sponsor here. A DAO evaluator's `propose` works like any other call once the DAO is
+What that account cannot do: sign `fund`. Its NEAR key never calls the NEAR Intents contracts. To sponsor, name as
+`sponsor` the account its EVM or Solana key signs intents as, deploy with `POST /api/deploy {params, spec}` (this app
+publishes the terms for it), then sign the draft's `fund_intent` with that key. A DAO evaluator's `propose` works like any other call once the DAO is
 listed, but its bond is NEAR the policy's `destinations` must allow.
 
 ## Rules

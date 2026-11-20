@@ -96,7 +96,17 @@ async function confirmLaunch(
   signal?: AbortSignal,
 ): Promise<LaunchResult> {
   if (!claimed.launched) return claimed;
-  const view = await abortable(signal, () => chain.describeObjective(claimed.objective, signal));
+  let view: Awaited<ReturnType<Chain["describeObjective"]>>;
+  try {
+    view = await abortable(signal, () => chain.describeObjective(claimed.objective, signal));
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    // the wallet says it launched and the chain can't be read: neither a launch nor a failure to tell the customer about
+    return {
+      launched: false,
+      reason: `The wallet reported the launch, but the chain could not be read to confirm it (${e instanceof Error ? e.message : e}). Check ${claimed.objective} with view_objective before anything else; never launch it again.`,
+    };
+  }
   const funded = BigInt(view.state?.funded ?? "0");
   if (!view.deployed || funded === 0n) return { launched: false, reason: `${claimed.objective} is not funded on chain` };
   const p = proposal.safeParse(input);

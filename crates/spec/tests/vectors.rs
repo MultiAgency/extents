@@ -235,6 +235,46 @@ fn a_judged_outcome_needs_its_calls() {
     ));
 }
 
+/// A report over `max_report_bytes` fails the judged criterion with no model
+/// asked: a fail may have no calls, a pass never.
+#[test]
+fn a_judged_fail_may_have_no_calls() {
+    let mut review: Value = serde_json::from_slice(&vector("review.json")).unwrap();
+    for r in review["results"].as_array_mut().unwrap() {
+        if r["criterion_id"] == "useful" {
+            r["outcome"] = "fail".into();
+        }
+    }
+    review["llm_calls"] = json!([]);
+    Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec()).unwrap();
+}
+
+/// Once any model was asked, a judged fail still needs every model's answer.
+#[test]
+fn a_judged_fail_with_some_calls_needs_them_all() {
+    let mut spec: Value = serde_json::from_slice(&vector("spec.json")).unwrap();
+    let useful = spec["criteria"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|c| c["id"] == "useful")
+        .unwrap();
+    useful["check"]["models"] = json!(["a/model", "b/model", "c/model"]);
+    let three = Spec::from_json(&serde_json::to_vec(&spec).unwrap()).unwrap();
+    let mut review: Value = serde_json::from_slice(&vector("review.json")).unwrap();
+    review["spec_hash"] = hex::encode(three.hash().unwrap()).into();
+    for r in review["results"].as_array_mut().unwrap() {
+        if r["criterion_id"] == "useful" {
+            r["outcome"] = "fail".into();
+        }
+    }
+    review["llm_calls"] = json!([call("useful", "a/model", false)]);
+    assert!(matches!(
+        Review::from_json(&serde_json::to_vec(&review).unwrap(), &three),
+        Err(Error::InvalidCall { .. })
+    ));
+}
+
 #[test]
 fn a_judge_needs_one_model_or_three() {
     let mut spec: Value = serde_json::from_slice(&vector("spec.json")).unwrap();

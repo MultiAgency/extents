@@ -12,9 +12,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { attestationOf, attestProposal, mayPropose, type Dao } from "../shared/attest.ts";
 import { calls } from "../shared/calls.ts";
 import { utf8Bytes } from "../shared/judge.ts";
-import { deliveredBy, deliveryHash, holders, verifyReports } from "../shared/delivery.ts";
+import { deliveredBy, deliveryHash, holders, slotOf, verifyReports } from "../shared/delivery.ts";
 import type { DraftState } from "../shared/draft.ts";
-import { objectiveCodeHash } from "../shared/config.ts";
+import { objectiveCodeHash, sponsorMayRelease } from "../shared/config.ts";
 import { parseLaunchFragment, type LaunchLink } from "../shared/launch-link.ts";
 import { buildObjective, formatUnits, type LaunchResult, type Objective } from "../shared/objective.ts";
 import { contributorsInOrder, paysContributors, PIPS_MAX, timestampNanos, type Params } from "../shared/params.ts";
@@ -108,14 +108,13 @@ export function ObjectivePage({ address }: { address: string }) {
   const docs = view.documents;
   const funded = BigInt(view.state?.funded ?? "0");
   const order = holders(docs.params, view.state?.taken);
-  const originals = contributorsInOrder(docs.params).map(([a]) => a);
-  let index = accountId ? order.indexOf(accountId) : -1;
-  if (index < 0 && accountId && docs.params.commit_by && Date.parse(docs.params.commit_by) < Date.now())
-    index = originals.findIndex((original, i) => !bit(view.state?.committed, i) && docs.params.backups?.[original] === accountId);
+  const index = accountId ? slotOf(docs.params, view.state, accountId, Date.now()) : -1;
   const evaluating =
     Boolean(near && accountId && !view.state?.outcome) &&
     (accountId === docs.params.evaluator || Boolean(view.evaluator_dao && accountId && mayPropose(view.evaluator_dao, accountId)));
   const journey = objectiveJourney(docs.params, view.state, Date.now());
+  // everyone delivered and the verdict is pending: the sponsor may pay out without it, on a build that allows it
+  const releasing = sponsorMayRelease() && Boolean(near) && accountId === docs.params.sponsor && !evaluating && journey.current === "judge";
   // the map stays inked once the escrow paid out, not only while it holds the money
   const paid = paysContributors(view.state?.outcome);
   const you =
@@ -130,6 +129,8 @@ export function ObjectivePage({ address }: { address: string }) {
     ) : (
       <GoTo href="#act">{journey.current === "judge" ? "Evaluate the deliveries" : "Go to your part"}</GoTo>
     )
+  ) : releasing ? (
+    <GoTo href="#release">Release payment</GoTo>
   ) : journey.actors[0] ? (
     <SwitchTo account={journey.actors[0]} />
   ) : undefined;
@@ -159,6 +160,9 @@ export function ObjectivePage({ address }: { address: string }) {
           )}
           {near && accountId && (view.state?.outcome || Date.parse(view.state?.deadline ?? docs.params.deadline) < Date.now()) && (
             <CloseObjective address={address} account={accountId} params={docs.params} near={near} onChange={refresh} />
+          )}
+          {releasing && near && accountId && (
+            <ReleasePayment address={address} account={accountId} params={docs.params} near={near} onChange={refresh} />
           )}
           <section aria-label="Contributors" className="flex flex-col gap-2">
             <h2 className="font-display text-lg font-semibold">Who has committed</h2>
@@ -730,6 +734,51 @@ function Evaluator(props: {
       <Alert>{blocked && review ? blocked : undefined}</Alert>
       <Alert>{invalid}</Alert>
       <Alert>{error}</Alert>
+      <Alert>{failure}</Alert>
+    </section>
+  );
+}
+
+/**
+ * The sponsor's release: once every contributor delivered, it may pay them
+ * without waiting for the evaluator, with `ob_attest` achieved. The objective
+ * resolves as `released`; the sponsor can never send a failed verdict.
+ */
+function ReleasePayment(props: { address: string; account: string; params: Params; near: Near; onChange: () => Promise<void> }) {
+  const { address, account, params, near, onChange } = props;
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string>();
+  const release = async () => {
+    setBusy(true);
+    setFailure(undefined);
+    try {
+      await sign(near, account, calls.attest(address, params, { verdict: "achieved" }), "FINAL");
+      await onChange();
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section
+      id="release"
+      aria-label="Release payment"
+      className="flex scroll-mt-6 flex-col gap-4 rounded-[18px] border border-rule bg-sheet p-5"
+    >
+      <h2 className="font-display text-lg font-semibold">Release payment</h2>
+      <p className="text-ink-soft">
+        Every contributor has delivered. You can pay them now instead of waiting for {params.evaluator}'s verdict: your funding goes out by
+        their shares, and the objective resolves as released. This can't be undone.
+      </p>
+      <button
+        type="button"
+        aria-disabled={busy || undefined}
+        onClick={() => !busy && void release()}
+        className="self-start rounded-full bg-sealed px-5 py-2.5 font-display font-semibold text-action-ink aria-disabled:opacity-60"
+      >
+        {busy ? "Signing…" : "Release payment"}
+      </button>
       <Alert>{failure}</Alert>
     </section>
   );

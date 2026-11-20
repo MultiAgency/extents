@@ -15,6 +15,8 @@ pub enum Error {
     Borsh(io::Error),
     #[error("cleanup in progress")]
     CleanupInProgress,
+    #[error("a contributor has committed, so the funding is theirs to earn")]
+    Committed,
     #[error("deadline has expired")]
     DeadlineExpired,
     #[error("deadline has not expired yet")]
@@ -45,6 +47,8 @@ pub enum Error {
     JSON(#[from] serde_json::Error),
     #[error("not all contributors have delivered")]
     NotDelivered,
+    #[error("no commitment to withdraw")]
+    NothingToWithdraw,
     #[error("commit before delivering")]
     NotCommittedYet,
     #[error("unauthorized")]

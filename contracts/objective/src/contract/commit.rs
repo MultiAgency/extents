@@ -19,6 +19,14 @@ impl Contract {
             .commit(signer_id, params)
     }
 
+    pub(super) fn withdraw(&mut self, signer_id: &AccountIdRef, params: &Params) -> Result<()> {
+        let storage = &mut self.0;
+        storage
+            .try_as_alive_mut()?
+            .verify_mut(params)?
+            .withdraw(signer_id, params)
+    }
+
     pub(super) fn deliver(
         &mut self,
         signer_id: &AccountIdRef,
@@ -66,17 +74,7 @@ impl State {
         params: &Params,
         Delivery { hash }: Delivery,
     ) -> Result<()> {
-        let Slot { bit, backup } = self.open_for(signer_id, params)?;
-        if self.committed & bit == 0 {
-            return Err(Error::NotCommittedYet);
-        }
-        // only whoever holds the slot delivers for it
-        if (self.taken & bit != 0) != backup {
-            return Err(Error::Unauthorized);
-        }
-        if self.delivered & bit != 0 {
-            return Err(Error::AlreadyDelivered);
-        }
+        let bit = self.held_undelivered(signer_id, params, Error::NotCommittedYet)?;
         self.delivered |= bit;
 
         if self.delivered == params.all_contributors()
@@ -95,6 +93,44 @@ impl State {
         })
         .emit();
         Ok(())
+    }
+
+    /// Gives the signer's slot back before it delivers. The slot is empty
+    /// again, as if nobody had committed to it: its listed contributor may
+    /// commit, or its backup once `commit_by` passed.
+    fn withdraw(&mut self, signer_id: &AccountIdRef, params: &Params) -> Result<()> {
+        let bit = self.held_undelivered(signer_id, params, Error::NothingToWithdraw)?;
+        self.committed &= !bit;
+        self.taken &= !bit;
+
+        Event::Withdrawn(CommittedEvent {
+            contributor: Cow::Borrowed(signer_id),
+        })
+        .emit();
+        Ok(())
+    }
+
+    /// The bit of the slot the signer holds and has not delivered for, while
+    /// contributors can still act. `uncommitted` is the refusal when nobody
+    /// holds the slot yet.
+    fn held_undelivered(
+        &self,
+        signer_id: &AccountIdRef,
+        params: &Params,
+        uncommitted: Error,
+    ) -> Result<u16> {
+        let Slot { bit, backup } = self.open_for(signer_id, params)?;
+        if self.committed & bit == 0 {
+            return Err(uncommitted);
+        }
+        // only whoever holds the slot acts for it
+        if (self.taken & bit != 0) != backup {
+            return Err(Error::Unauthorized);
+        }
+        if self.delivered & bit != 0 {
+            return Err(Error::AlreadyDelivered);
+        }
+        Ok(bit)
     }
 
     /// The signer's slot, while contributors can still act: before a verdict

@@ -25,7 +25,8 @@ impl Params {
     /// Gas to attach to `ob_attest`, directly, by DAO proposal, or as an
     /// `auth_call`'s `min_gas`: a transfer for each contributor and the
     /// sponsor's remainder, their callback, and the call itself. An upper
-    /// bound for every verdict; unused gas is refunded.
+    /// bound for every verdict; unused gas is refunded. `ob_cancel` sends
+    /// one payout, so this covers it too.
     #[must_use]
     pub fn attest_gas(&self) -> Gas {
         let payouts = u64::try_from(self.contributors.len())

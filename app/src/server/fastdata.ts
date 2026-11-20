@@ -5,7 +5,7 @@
  * API. Anyone can write there, so a reader trusts a row only if its writer
  * holds that role in `Params` and its value matches the on-chain hash.
  */
-import { DOCUMENT_KEYS, FASTDATA_URL, RPC_URL } from "../shared/config.ts";
+import { DOCUMENT_KEYS, FASTDATA_URL } from "../shared/config.ts";
 import { deliveryHash } from "../shared/delivery.ts";
 import { objectiveAccountId, type Params } from "../shared/params.ts";
 import { reportHash, type Delivered } from "../shared/review.ts";
@@ -13,7 +13,22 @@ import { accountId, parseSpec, specHash, type Spec } from "../shared/spec.ts";
 import { jcsHash } from "../shared/jcs.ts";
 import { specLimitProblem } from "../shared/schema.ts";
 import { readCapped, withTimeout } from "./bounded.ts";
+import { RPC } from "./rpc.ts";
 import { z } from "zod";
+
+/** The indexer the server reads; `FASTDATA_URL` points tests at a stand-in. */
+const FASTDATA = process.env.FASTDATA_URL || FASTDATA_URL;
+
+/**
+ * Who may write an objective's spec row: its sponsor, and this server's
+ * deployer, which publishes the terms for a sponsor with no NEAR key. The
+ * spec hash in `Params` pins the content either way; the writers only bound
+ * the search.
+ */
+const specWriters = (params: Params) => [
+  params.sponsor,
+  ...(process.env.DEPLOYER_ACCOUNT_ID && process.env.DEPLOYER_ACCOUNT_ID !== params.sponsor ? [process.env.DEPLOYER_ACCOUNT_ID] : []),
+];
 
 /** Keys the sponsor writes at launch. */
 export interface LaunchDocuments {
@@ -65,7 +80,7 @@ async function* latest(objective: string, query: { key: string; predecessor?: st
   let total = 0;
   do {
     if (rows >= 2000) throw new Error("Too many published document rows");
-    const res = await fetch(`${FASTDATA_URL}/v0/latest/${objective}${query.predecessor ? `/${query.predecessor}` : ""}`, {
+    const res = await fetch(`${FASTDATA}/v0/latest/${objective}${query.predecessor ? `/${query.predecessor}` : ""}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -128,7 +143,7 @@ export const readLaunchDocuments = launchDocumentReader();
  * The launch documents of an objective, accepted only if `params` derives
  * the objective's own address (so it is exactly what was deployed) and the
  * spec matches `params.spec_hash`. The params row may come from any writer;
- * the spec row must be the sponsor's.
+ * the spec row must be the sponsor's or this server's deployer's.
  */
 async function findLaunchDocuments(objective: string, codeHash: string, signal?: AbortSignal): Promise<LaunchDocuments | undefined> {
   for await (const rows of latest(objective, { key: DOCUMENT_KEYS.params }, signal)) {
@@ -139,18 +154,19 @@ async function findLaunchDocuments(objective: string, codeHash: string, signal?:
       } catch {
         continue;
       }
-      for await (const specs of latest(objective, { key: DOCUMENT_KEYS.spec, predecessor: params.sponsor }, signal)) {
-        for (const row of specs) {
-          // Limits precede parsing; checking canonical bytes needs no schema compilation.
-          const unsupported = specLimitProblem(row.value);
-          if (unsupported) {
-            if (safeHash(row.value) === params.spec_hash) return { params, spec: row.value as Spec, unsupported };
-            continue;
+      for (const writer of specWriters(params))
+        for await (const specs of latest(objective, { key: DOCUMENT_KEYS.spec, predecessor: writer }, signal)) {
+          for (const row of specs) {
+            // Limits precede parsing; checking canonical bytes needs no schema compilation.
+            const unsupported = specLimitProblem(row.value);
+            if (unsupported) {
+              if (safeHash(row.value) === params.spec_hash) return { params, spec: row.value as Spec, unsupported };
+              continue;
+            }
+            const spec = safeSpec(row.value);
+            if (spec && specHash(spec) === params.spec_hash) return { params, spec };
           }
-          const spec = safeSpec(row.value);
-          if (spec && specHash(spec) === params.spec_hash) return { params, spec };
         }
-      }
       // Every valid Params derives the same sponsor and spec hash for this address.
       return undefined;
     }
@@ -202,7 +218,7 @@ export async function readDeliverables(objective: string, contributors: string[]
           `The delivery proof for ${contributor} is missing. Publish its report and delivery transaction.`,
           "missing",
         );
-      const res = await fetch(RPC_URL, {
+      const res = await fetch(RPC, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

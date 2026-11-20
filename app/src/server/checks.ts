@@ -95,8 +95,15 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** The value on a `<label>: <value>` line, case-insensitive, list markers allowed. */
 export function labelled(text: string, label: string): string | undefined {
-  const m = new RegExp(`^\\s*(?:[-*]\\s*)?\\**${escape(label)}\\**\\s*:\\s*(.+?)\\s*$`, "im").exec(text);
-  return m?.[1];
+  // One line at a time, each anchored at its start and trimmed after: linear in the report. A pattern over the whole
+  // text rescanned a long run of spaces for every candidate end of the value, and let a label with nothing after its
+  // colon take the next line as its value.
+  const line = new RegExp(`^\\s*(?:[-*]\\s*)?\\**${escape(label)}\\**\\s*:(.*)$`, "i");
+  for (const l of text.split(/\r\n?|\n|\u2028|\u2029/)) {
+    const value = line.exec(l)?.[1]!.trim();
+    if (value) return value;
+  }
+  return undefined;
 }
 
 const LINK = /https?:\/\/[^\s)<>\]"']+/g;

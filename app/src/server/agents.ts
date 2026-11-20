@@ -7,7 +7,7 @@
 import { EventType, type RunErrorEvent, type RunFinishedEvent } from "@ag-ui/core";
 
 import { attestationOf, type Dao } from "../shared/attest.ts";
-import { calls, describe } from "../shared/calls.ts";
+import { calls, describe, fundIntent } from "../shared/calls.ts";
 import { objectiveCodeHash } from "../shared/config.ts";
 import { slotOf } from "../shared/delivery.ts";
 import { launchFragment } from "../shared/launch-link.ts";
@@ -38,6 +38,9 @@ export function draft(p: Proposal, sponsor: string, given: string | undefined, o
       { step: "publish", signer: sponsor, ...describe(calls.publish(o.accountId, { params: o.params, spec: o.spec })), note: PUBLISH_NOTE },
       { step: "fund", signer: sponsor, ...describe(calls.fund(o.accountId, o.params, o.amount)) },
     ],
+    // a sponsor that signs Verifier intents rather than NEAR transactions: deploy with the spec (the deployer then
+    // publishes the terms), and fund with this, signed with `signer_id` = the sponsor
+    fund_intent: fundIntent(o.accountId, o.params, o.amount),
   };
 }
 
