@@ -18,22 +18,15 @@ import { contributorsInOrder, PIPS_MAX, timestampNanos, type Params } from "../s
 import { reportHash, type CheckSummary, type Delivered } from "../shared/review.ts";
 import { parseReview, reviewHash, type Review, type Spec } from "../shared/spec.ts";
 import { fileAttestation, filingKey, HashlessFiling, setAside } from "./dao-proposal.ts";
+import { objectiveJourney, type ObjectiveState } from "./journey.ts";
 import { Plat } from "./plat.tsx";
 import { finalStatus, publishFastData, sign } from "./send.ts";
+import { GoTo, Steps, SwitchTo } from "./steps.tsx";
 import { useWallet } from "./wallet.tsx";
 
 interface View {
   deployed: boolean;
-  state?: {
-    funded?: string;
-    committed?: number;
-    delivered?: number;
-    taken?: number;
-    deadline?: string;
-    outcome?: string;
-    owed?: Record<string, string>;
-    in_flight?: number;
-  };
+  state?: ObjectiveState;
   documents?: { params: Params; spec: Spec; unsupported?: string };
   evaluator_dao?: Dao;
   verifier_balance?: string;
@@ -75,6 +68,15 @@ export function ObjectivePage({ address }: { address: string }) {
     }
   }, [address]);
   useEffect(() => void refresh(), [refresh]);
+  // another role acts from another wallet: keep the page current while it is open, until it is settled
+  const settled = Boolean(
+    view?.documents && view.state?.outcome && !objectiveJourney(view.documents.params, view.state, Date.now()).current,
+  );
+  useEffect(() => {
+    if (settled) return;
+    const id = setInterval(() => document.visibilityState === "visible" && void refresh(), 8000);
+    return () => clearInterval(id);
+  }, [refresh, settled]);
 
   if (error)
     return (
@@ -102,81 +104,119 @@ export function ObjectivePage({ address }: { address: string }) {
   let index = accountId ? order.indexOf(accountId) : -1;
   if (index < 0 && accountId && docs.params.commit_by && Date.parse(docs.params.commit_by) < Date.now())
     index = originals.findIndex((original, i) => !bit(view.state?.committed, i) && docs.params.backups?.[original] === accountId);
+  const evaluating =
+    Boolean(near && accountId && !view.state?.outcome) &&
+    (accountId === docs.params.evaluator || Boolean(view.evaluator_dao && accountId && mayPropose(view.evaluator_dao, accountId)));
+  const journey = objectiveJourney(docs.params, view.state, Date.now());
+  // the map stays inked once the escrow paid out, not only while it holds the money
+  const paid = view.state?.outcome === "achieved" || view.state?.outcome === "accepted";
+  const you =
+    Boolean(accountId && journey.actors.includes(accountId)) ||
+    (journey.current === "judge" && evaluating) ||
+    (journey.current !== undefined && journey.actors.length === 0 && Boolean(near));
+  const action = !journey.current ? undefined : you ? (
+    journey.current === "fund" ? (
+      <GoTo href="/">Fund it from the workspace</GoTo>
+    ) : journey.current === "settle" ? (
+      <GoTo href="#settle">Settle it</GoTo>
+    ) : (
+      <GoTo href="#act">{journey.current === "judge" ? "Evaluate the deliveries" : "Go to your part"}</GoTo>
+    )
+  ) : journey.actors[0] ? (
+    <SwitchTo account={journey.actors[0]} />
+  ) : undefined;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:items-start">
-      <Plat draft={draftOf(docs, funded)} deployed={{ address, funded: funded > 0n, outcome: view.state?.outcome }} />
-      <div className="flex flex-col gap-6">
-        <button type="button" onClick={() => void refresh()} className="self-start text-sm underline underline-offset-4">
-          Refresh objective
-        </button>
-        {docs.unsupported && (
-          <p role="alert" className="text-alert">
-            This app can't check or evaluate these terms: {docs.unsupported}. They are still the objective's terms, and its evaluator can
-            attest with other tools.
-          </p>
-        )}
-        {view.state?.outcome && (
-          <p className="font-display text-xl font-semibold">
-            {`Resolved: ${view.state.outcome}. `}
-            {view.state.in_flight
-              ? "Payouts or balance checks are pending."
-              : Object.values(view.state.owed ?? {}).some((amount) => BigInt(amount) > 0n)
-                ? "Some payouts need a retry."
-                : "No payouts remain outstanding."}
-          </p>
-        )}
-        {near && accountId && (view.state?.outcome || Date.parse(view.state?.deadline ?? docs.params.deadline) < Date.now()) && (
-          <CloseObjective address={address} account={accountId} params={docs.params} near={near} onChange={refresh} />
-        )}
-        <section aria-label="Contributors" className="flex flex-col gap-2">
-          <h2 className="font-display text-lg font-semibold">Who has committed</h2>
-          <ul className="flex flex-col gap-1">
-            {order.map((a, i) => (
-              <li key={a} className="flex items-baseline justify-between gap-3">
-                <span className="font-mono text-sm">{a}</span>
-                <span className={bit(view.state?.delivered, i) ? "text-sealed" : bit(view.state?.committed, i) ? "" : "text-ink-soft"}>
-                  {bit(view.state?.delivered, i) ? "delivered" : bit(view.state?.committed, i) ? "committed" : "not yet"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-        {index >= 0 && near && accountId && !view.state?.outcome && (
-          <Contributor
-            address={address}
-            account={accountId}
-            params={docs.params}
-            committed={Boolean(bit(view.state?.committed, index))}
-            delivered={Boolean(bit(view.state?.delivered, index))}
-            funded={funded > 0n}
-            maxReportBytes={docs.spec.max_report_bytes}
-            near={near}
-            onChange={refresh}
-          />
-        )}
-        {near &&
-        accountId &&
-        !view.state?.outcome &&
-        (accountId === docs.params.evaluator || (view.evaluator_dao && mayPropose(view.evaluator_dao, accountId))) ? (
-          <Evaluator
-            address={address}
-            account={accountId}
-            params={docs.params}
-            spec={docs.spec}
-            dao={accountId === docs.params.evaluator ? undefined : view.evaluator_dao}
-            effectiveDeadline={view.state?.deadline ?? docs.params.deadline}
-            deliveredBy={deliveredBy(docs.params, view.state)}
-            slots={order}
-            allDelivered={order.every((_, i) => bit(view.state?.delivered, i))}
-            near={near}
-            onChange={refresh}
-          />
-        ) : (
-          index < 0 && <Checker address={address} />
-        )}
+    <div className="flex flex-col gap-8">
+      <Steps journey={journey} you={you} action={action} />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:items-start">
+        <Plat draft={draftOf(docs, funded)} deployed={{ address, funded: funded > 0n || paid, outcome: view.state?.outcome }} />
+        <div className="flex flex-col gap-6">
+          {journey.current && <ShareLink />}
+          {docs.unsupported && (
+            <p role="alert" className="text-alert">
+              This app can't check or evaluate these terms: {docs.unsupported}. They are still the objective's terms, and its evaluator can
+              attest with other tools.
+            </p>
+          )}
+          {view.state?.outcome && journey.current && (
+            <p className="font-display text-xl font-semibold">
+              {`Resolved: ${view.state.outcome}. `}
+              {view.state.in_flight
+                ? "Payouts or balance checks are pending."
+                : Object.values(view.state.owed ?? {}).some((amount) => BigInt(amount) > 0n)
+                  ? "Some payouts need a retry."
+                  : "No payouts remain outstanding."}
+            </p>
+          )}
+          {near && accountId && (view.state?.outcome || Date.parse(view.state?.deadline ?? docs.params.deadline) < Date.now()) && (
+            <CloseObjective address={address} account={accountId} params={docs.params} near={near} onChange={refresh} />
+          )}
+          <section aria-label="Contributors" className="flex flex-col gap-2">
+            <h2 className="font-display text-lg font-semibold">Who has committed</h2>
+            <ul className="flex flex-col gap-1">
+              {order.map((a, i) => (
+                <li key={a} className="flex items-baseline justify-between gap-3">
+                  <span className="font-mono text-sm">{a}</span>
+                  <span className={bit(view.state?.delivered, i) ? "text-sealed" : bit(view.state?.committed, i) ? "" : "text-ink-soft"}>
+                    {bit(view.state?.delivered, i) ? "delivered" : bit(view.state?.committed, i) ? "committed" : "not yet"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+          {index >= 0 && near && accountId && !view.state?.outcome && (
+            <Contributor
+              address={address}
+              account={accountId}
+              params={docs.params}
+              committed={Boolean(bit(view.state?.committed, index))}
+              delivered={Boolean(bit(view.state?.delivered, index))}
+              funded={funded > 0n}
+              maxReportBytes={docs.spec.max_report_bytes}
+              near={near}
+              onChange={refresh}
+            />
+          )}
+          {near && accountId && evaluating ? (
+            <Evaluator
+              address={address}
+              account={accountId}
+              params={docs.params}
+              spec={docs.spec}
+              dao={accountId === docs.params.evaluator ? undefined : view.evaluator_dao}
+              effectiveDeadline={view.state?.deadline ?? docs.params.deadline}
+              deliveredBy={deliveredBy(docs.params, view.state)}
+              slots={order}
+              allDelivered={order.every((_, i) => bit(view.state?.delivered, i))}
+              near={near}
+              onChange={refresh}
+            />
+          ) : (
+            index < 0 && journey.current && <Checker address={address} />
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+/** The page is the hand-off: whoever acts next opens this link in their own wallet. */
+function ShareLink() {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        void navigator.clipboard.writeText(location.href).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        })
+      }
+      className="self-start text-sm text-ink-soft underline underline-offset-4 hover:text-ink"
+    >
+      {copied ? "Link copied" : "Copy the link for the next role"}
+    </button>
   );
 }
 
@@ -239,7 +279,7 @@ function Contributor(props: {
   });
 
   return (
-    <section aria-label="Your part" className="flex flex-col gap-4 rounded-[18px] border border-rule bg-sheet p-5">
+    <section id="act" aria-label="Your part" className="scroll-mt-6 flex flex-col gap-4 rounded-[18px] border border-rule bg-sheet p-5">
       <h2 className="font-display text-lg font-semibold">Your part</h2>
       {!committed ? (
         <>
@@ -547,7 +587,7 @@ function Evaluator(props: {
 
   const summary = result?.summary;
   return (
-    <section aria-label="Evaluate" className="flex flex-col gap-4 rounded-[18px] border border-rule bg-sheet p-5">
+    <section id="act" aria-label="Evaluate" className="scroll-mt-6 flex flex-col gap-4 rounded-[18px] border border-rule bg-sheet p-5">
       <h2 className="font-display text-lg font-semibold">Evaluate</h2>
       <p className="text-ink-soft">
         {dao
@@ -657,7 +697,7 @@ function CloseObjective({
     }
   };
   return (
-    <section aria-label="Settlement" className="flex flex-col gap-3">
+    <section id="settle" aria-label="Settlement" className="scroll-mt-6 flex flex-col gap-3">
       <p>Close an expired objective, retry failed payouts, or check whether settlement is complete.</p>
       <button
         type="button"

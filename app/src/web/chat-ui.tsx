@@ -2,6 +2,7 @@ import { useState, type ComponentType } from "react";
 
 import { ObjectivePage } from "./objective-page.tsx";
 import { Plat } from "./plat.tsx";
+import { Steps } from "./steps.tsx";
 import { useWallet } from "./wallet.tsx";
 import type { DraftState } from "../shared/draft.ts";
 
@@ -65,8 +66,9 @@ export function Shell({ Chat, objective }: { Chat: ComponentType<{ account: stri
   return (
     <div className="mx-auto flex min-h-dvh max-w-7xl flex-col gap-8 px-4 py-6 sm:px-8">
       <header className="flex items-center justify-between gap-4">
-        <a href="/" className="font-display text-2xl font-bold tracking-tight">
-          Extents
+        <a href="/" className="flex items-baseline gap-3">
+          <span className="font-display text-2xl font-bold tracking-tight">Extents</span>
+          <span className="rounded-full border border-contour px-2 py-0.5 text-xs whitespace-nowrap text-ink-soft">NEAR testnet</span>
         </a>
         {accountId ? (
           <button className="font-mono text-sm text-ink-soft hover:text-ink" onClick={disconnect}>
@@ -89,23 +91,29 @@ export function Shell({ Chat, objective }: { Chat: ComponentType<{ account: stri
           <Chat account={accountId} />
         </main>
       ) : (
-        <main className="grid flex-1 items-center gap-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
-          <div className="flex flex-col gap-6">
-            <h1 className="max-w-[14ch] font-display text-5xl leading-[1.02] font-bold text-balance sm:text-6xl">
-              Fund the outcome, not the promise.
-            </h1>
-            <p className="max-w-[44ch] text-lg text-ink-soft">
-              Say what you want to happen. The money waits in escrow on NEAR and goes to the people who make it happen, once an evaluator
-              confirms it did.
-            </p>
-            <button
-              onClick={connect}
-              className="self-start rounded-full bg-action px-6 py-3 font-display text-lg font-semibold text-action-ink"
-            >
-              Connect a NEAR wallet to start
-            </button>
+        <main className="flex flex-1 flex-col gap-16 pb-10">
+          <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+            <div className="flex flex-col gap-6">
+              <h1 className="max-w-[14ch] font-display text-5xl leading-[1.02] font-bold text-balance sm:text-6xl">
+                Fund the outcome, not the promise.
+              </h1>
+              <p className="max-w-[44ch] text-lg text-ink-soft">
+                Say what you want to happen. The money waits in escrow on NEAR and goes to the people who make it happen, once an evaluator
+                confirms it did.
+              </p>
+              <button
+                onClick={connect}
+                className="self-start rounded-full bg-action px-6 py-3 font-display text-lg font-semibold text-action-ink"
+              >
+                Connect a NEAR wallet to start
+              </button>
+            </div>
+            <Plat draft={SAMPLE} />
           </div>
-          <Plat draft={SAMPLE} />
+          <div className="flex flex-col gap-6 border-t border-rule pt-10">
+            <h2 className="font-display text-3xl font-bold">From a sentence to a payout, in six steps</h2>
+            <Steps journey={{ current: "draft", actors: [], task: "" }} explain />
+          </div>
         </main>
       )}
     </div>

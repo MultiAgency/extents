@@ -127,7 +127,8 @@ export const readLaunchDocuments = launchDocumentReader();
 /**
  * The launch documents of an objective, accepted only if `params` derives
  * the objective's own address (so it is exactly what was deployed) and the
- * spec matches `params.spec_hash`. The writer is then irrelevant.
+ * spec matches `params.spec_hash`. The params row may come from any writer;
+ * the spec row must be the sponsor's.
  */
 async function findLaunchDocuments(objective: string, codeHash: string, signal?: AbortSignal): Promise<LaunchDocuments | undefined> {
   for await (const rows of latest(objective, { key: DOCUMENT_KEYS.params }, signal)) {

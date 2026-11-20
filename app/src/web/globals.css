@@ -82,9 +82,22 @@ body {
 .working {
   animation: working 1.2s ease-in-out infinite;
 }
+/* the station whose move it is: a slow ring, like a beacon on the traverse */
+@keyframes beacon {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--action) 45%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 12px transparent;
+  }
+}
+.station-active {
+  animation: beacon 1.8s ease-out infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   .terrain-sealed path,
-  .working {
+  .working,
+  .station-active {
     animation: none;
   }
 }

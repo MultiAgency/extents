@@ -7,7 +7,7 @@ Each instance's account id and initial state come from the crate's own
 `Params` and `ContractStorage::init_state`. Each `msg` is a serialized
 `TransferMessage` or `auth_call::Message`. The bytes sent on-chain therefore
 come from the same code as the contract. The Verifier's intent wire format
-(NEP-413 payload, versioned nonce) is written out in `src/intent.rs` against
+(NEP-413 payload, versioned nonce) is written out in `extents-client` (`crates/client`) against
 the v0.4.5 tag, because the sibling `intents` checkout is ahead of the
 deployed build. Because of that, `run` and `dao` first check that the
 live Verifier's code hash is that build's (`extents_client::VERIFIER_SHA256`),
@@ -274,8 +274,8 @@ mainnet, `binding.receiver_id` is `v1.signer`.
 (created in tx `5UF9PVRyLMJvbhoEqPJdAJ6jjAw1HUB5GjHenPy4PBMA`), derived
 account `aa59f4f8d95bb6f755c51939c6504e4d9fe9b63cf4594cd31d47b8c1ee9f48f0`.
 
-- The run was proposal 1, in the template's string form (see
-  [`results/dao-transfer.json`](results/dao-transfer.json)).
+- The run was proposal 1, in the template's string form. Its transaction
+  dump is no longer checked in (see [`results/RESULTS.md`](results/RESULTS.md)).
   1. `e2e-c0` filed it (tx `DoCph2tizJTPg4AWESNePbARP1xP9sAbcHaiogyneZVT`),
      and it verified.
   2. `e2e-c0` approved it (tx `CbkNg7aFDCU82pJmowUB3NYWHzZ2FYqFEv3caWkRc3QY`).

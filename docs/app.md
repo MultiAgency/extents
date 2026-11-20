@@ -73,7 +73,7 @@ the same review retains that feedback; a different review has its own state, inc
 If the review or attestation call cannot be prepared, the page reports the error and offers no attestation.
 
 A verdict follows the results: `achieved` only when every criterion passed, `failed` when one failed. A skipped check cannot support achievement. If no check failed and at least one was skipped, there is no verdict to attest. The contract refuses `achieved`
-unless every contributor committed, and any attestation after the effective deadline. The page uses the live state's
+unless every contributor delivered, and any attestation after the effective deadline. The page uses the live state's
 extended deadline, distinguishes allocation from completed payment, and offers permissionless close/retry controls.
 
 Each `llm_judge` names one model or three. Each model answers once on NEAR AI Cloud, without streaming, and the outcome

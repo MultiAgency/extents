@@ -66,8 +66,8 @@ async fn commit_and_deliver_gas_worst_case() -> Result<()> {
         })
         .collect::<Result<_>>()?;
     params.commit_by = Some(now + Duration::from_mins(2));
-    // The last delivery must extend the original 24-hour deadline so this
-    // measures the state update that opens the acceptance window.
+    // A 24-hour window outlasts the 40-minute deadline, so the last delivery
+    // extends the time to attest and this measures that state update.
     params.acceptance_window_secs = Some(24 * 60 * 60);
     params.auth_caller = Some(env.verifier.as_str().parse()?);
     let objective = env.deploy(&params).await?;

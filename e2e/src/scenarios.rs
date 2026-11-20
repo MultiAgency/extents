@@ -66,7 +66,9 @@ pub struct Run {
     pub spec: Option<Value>,
     /// Every review attested with, including those the contract rejected.
     pub reviews: Vec<Value>,
-    pub deposit_yocto: u128,
+    /// A string, like every yocto amount in the records: it can exceed what
+    /// a JSON number holds exactly.
+    pub deposit_yocto: String,
     pub steps: Vec<Step>,
     pub checks: Vec<Check>,
 }
@@ -164,7 +166,7 @@ impl Scenario {
             params: None,
             spec: None,
             reviews: Vec::new(),
-            deposit_yocto: 0,
+            deposit_yocto: "0".into(),
             steps: Vec::new(),
             checks: Vec::new(),
         };
@@ -256,7 +258,7 @@ impl Ctx<'_> {
         run.objective = Some(account.clone());
         run.params = Some(serde_json::to_value(params)?);
         run.spec = Some(serde_json::to_value(documents::spec())?);
-        run.deposit_yocto = deposit.as_yoctonear();
+        run.deposit_yocto = deposit.as_yoctonear().to_string();
 
         let instance = Instance {
             ctx: self,
@@ -911,8 +913,8 @@ async fn expired(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     );
     ob.check_payouts(&tx, &before, &[(sponsor, AMOUNT)]);
 
-    // Settled and past the deadline: the payout callback deletes the account
-    // within the same transaction.
+    // Settled and past the deadline: after the payout, the balance reads zero
+    // and its callback deletes the account within the same transaction.
     let gone = ob
         .ctx
         .chain

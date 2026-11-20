@@ -4,9 +4,20 @@ import { pluginReact } from "@rsbuild/plugin-react";
 // PUBLIC_* from the workspace's .env, one level up, as well as the process env
 const { publicVars } = loadEnv({ cwd: "..", prefixes: ["PUBLIC_"] });
 
+/**
+ * Every PUBLIC_* variable the browser code reads, defined even when unset: an
+ * undefined one would be left as `process.env.X`, which throws in a browser.
+ * Set values win, since `publicVars` comes last.
+ */
+const browserEnv = {
+  "process.env.PUBLIC_E2E": '""',
+  "process.env.PUBLIC_OBJECTIVE_CODE_HASH": '""',
+  ...publicVars,
+};
+
 export default defineConfig({
   plugins: [pluginReact()],
-  source: { entry: { index: "./src/web/main.tsx" }, define: publicVars },
+  source: { entry: { index: "./src/web/main.tsx" }, define: browserEnv },
   html: {
     title: "Extents",
     template: "./src/web/index.html",

@@ -176,4 +176,32 @@ mod tests {
         assert_eq!(saved["verifier_sha256"], extents_client::VERIFIER_SHA256);
         Ok(())
     }
+
+    /// A run with a NEAR deposit above `u64::MAX` yocto, as `expired`
+    /// records, is written like any other.
+    #[test]
+    fn writes_a_run_with_a_large_deposit() -> Result<()> {
+        use crate::scenarios::{Run, Scenario};
+
+        let dir = std::env::temp_dir().join(format!("extents-reports-{}", rand::random::<u64>()));
+        let run = Run {
+            code_hash: "build".into(),
+            verifier_sha256: extents_client::VERIFIER_SHA256,
+            scenario: Scenario::Expired,
+            objective: None,
+            params: None,
+            spec: None,
+            reviews: Vec::new(),
+            deposit_yocto: 10u128.pow(21).to_string(),
+            steps: Vec::new(),
+            checks: Vec::new(),
+        };
+        let written = write(&dir, &run);
+        let saved = fs::read(dir.join("build/expired.json"));
+        fs::remove_dir_all(&dir).ok();
+        written?;
+        let saved: serde_json::Value = serde_json::from_slice(&saved?)?;
+        assert_eq!(saved["deposit_yocto"], "1000000000000000000000");
+        Ok(())
+    }
 }

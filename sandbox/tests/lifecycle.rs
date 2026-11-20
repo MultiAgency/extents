@@ -181,8 +181,8 @@ async fn expired_returns_funds_and_deletion_pays_the_closer() -> Result<()> {
         sponsor_before + AMOUNT
     );
 
-    // Settled past the deadline: the payout callback deletes the account in
-    // the same transaction. With a non-zero balance the payout's yoctoNEAR is
+    // Settled past the deadline: after the payout, the balance reads zero
+    // and its callback deletes the account in the same transaction. With a non-zero balance the payout's yoctoNEAR is
     // deducted, and the rest goes to the closer.
     assert_eq!(close.events("cleanup").len(), 1);
     assert!(!env.exists(objective.account()).await?);

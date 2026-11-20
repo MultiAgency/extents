@@ -246,12 +246,6 @@ export function parseReview(raw: unknown, s: Spec): Review {
 }
 
 /**
- * Checks the review against the spec it claims to judge, and the verdict
- * against the results: `achieved` only when every criterion passed, `failed`
- * only when one failed. Skipped with nothing failed supports neither, so the
- * evaluator does not attest yet.
- */
-/**
  * Every call judged an `llm_judge` criterion with one of its models, once
  * per model; a judged outcome has every model's answer and follows their
  * majority. A skipped one may have some.
@@ -279,6 +273,13 @@ function validateCalls(r: Review, s: Spec, outcomes: Map<string, z.infer<typeof 
   }
 }
 
+/**
+ * Checks the review against the spec it claims to judge, and the verdict
+ * against the results: `achieved` only when every criterion passed and no
+ * report is missing, `failed` only when a criterion failed or a report is
+ * missing. Skipped with nothing failed or missing supports neither, so the
+ * evaluator does not attest yet.
+ */
 export function validateReview(r: Review, s: Spec): void {
   checkVersion(r.v);
   if (r.spec_hash !== specHash(s)) fail("spec_hash does not match the spec");

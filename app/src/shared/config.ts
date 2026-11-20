@@ -20,7 +20,7 @@ export const DEFAULT_EVALUATOR = "agency.testnet";
 
 /**
  * Base58 hash of the published `extents-objective` global contract. It must
- * be the build whose `Params` layout `lib/params.ts` mirrors, or deployed
+ * be the build whose `Params` layout `shared/params.ts` mirrors, or deployed
  * instances will not match their addresses.
  */
 export function objectiveCodeHash(): string {

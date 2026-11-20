@@ -769,7 +769,6 @@ pub async fn call(
     send(actor, tx).await
 }
 
-/// Sends `tx` as `actor` and returns its full outcome, receipts included.
 /// Sends `call` as `actor`.
 pub async fn send_call(actor: &Actor, call: &Call) -> Result<Outcome> {
     self::call(
@@ -783,6 +782,7 @@ pub async fn send_call(actor: &Actor, call: &Call) -> Result<Outcome> {
     .await
 }
 
+/// Sends `tx` as `actor` and returns its full outcome, receipts included.
 async fn send(actor: &Actor, tx: TransactionBuilder) -> Result<Outcome> {
     let sent = tx.wait_until::<Final>().await?;
     let full = actor

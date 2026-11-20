@@ -13,8 +13,17 @@ import type { LaunchResult } from "../shared/objective.ts";
 
 import { ObjectiveCard, type ToolView } from "./cards.tsx";
 import { Composer } from "./chat-ui.tsx";
+import { launchJourney } from "./journey.ts";
 import { useLaunch } from "./launch.ts";
 import { Plat } from "./plat.tsx";
+import { GoTo, Steps } from "./steps.tsx";
+
+/** Briefs a demo can start from in one click: testnet accounts, small amounts. */
+const BRIEFS = [
+  "I have 2 USDC for a NEAR builders meetup in New York before March 1, run by agency.testnet. I'll judge it myself.",
+  "Pay 1 USDC to agency.testnet for a blog post announcing Extents, live by December 15 with at least 500 words. I'll judge it.",
+  "Fund 3 USDC for a NEAR Intents workshop in Lisbon by February. agency.testnet runs it and multiagency.sputnikv2.testnet judges.",
+];
 
 /** The conversation over AG-UI: frontend tool calls are answered between runs. */
 function useAgUiChat(account: string) {
@@ -155,57 +164,87 @@ export function Chat({ account }: { account: string }) {
     m.role === "assistant" ? (m.toolCalls ?? []).filter((c) => c.function.name === "launch_objective") : [],
   );
   const latest = launches.at(-1);
+  const latestView = latest && viewOf<LaunchResult>(latest.id, latest.function.arguments, results.get(latest.id), ended);
+  const launched = latestView?.state === "done" && latestView.output.launched ? latestView.output.objective : undefined;
+  const declined = latestView?.state === "done" && !latestView.output.launched;
+  const journey = launchJourney(
+    launched ? "launched" : latest && !declined ? "ready" : "drafting",
+    account,
+    Object.keys(draft.terms.contributors ?? {}),
+  );
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start">
-      <div className="flex flex-col gap-4 lg:order-1 lg:min-h-[60vh]">
-        <div role="log" aria-label="Conversation" className="flex flex-col gap-4">
-          {messages.length === 0 && (
-            <p className="text-ink-soft">
-              For example: “I have 500 USDC and want a NEAR builders meetup in New York before March, run by organizer.testnet.”
-            </p>
-          )}
-          {messages.map((m) => {
-            if (m.role === "user")
-              return (
-                <p key={m.id} className="max-w-[85%] self-end rounded-2xl rounded-br-md bg-ink px-4 py-2.5 text-paper">
-                  {typeof m.content === "string" ? m.content : ""}
-                </p>
-              );
-            if (m.role !== "assistant") return null;
-            return (
-              <div key={m.id} className="flex flex-col gap-2">
-                {(m.toolCalls ?? []).map((c) => {
-                  const view = viewOf<unknown>(c.id, c.function.arguments, results.get(c.id), ended);
-                  if (c.function.name === "view_objective" && view.state === "done") return <ObjectiveCard key={c.id} view={view.output} />;
-                  return <Activity key={c.id} {...activity(c.function.name, view)} />;
-                })}
-                {m.content && <p className="max-w-[62ch] whitespace-pre-wrap [overflow-wrap:anywhere]">{m.content}</p>}
+    <div className="flex flex-col gap-8">
+      <Steps
+        journey={journey}
+        you={!launched}
+        action={
+          launched ? (
+            <GoTo href={`/o/${launched}`}>Open the objective page</GoTo>
+          ) : journey.current === "fund" ? (
+            <GoTo href="#plat">Review and sign</GoTo>
+          ) : undefined
+        }
+      />
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start">
+        <div className="flex flex-col gap-4 lg:order-1 lg:min-h-[60vh]">
+          <div role="log" aria-label="Conversation" className="flex flex-col gap-4">
+            {messages.length === 0 && (
+              <div className="flex flex-col gap-3">
+                <p className="font-display text-2xl font-semibold">What should happen?</p>
+                <p className="text-ink-soft">Describe it in your own words, or start from one of these.</p>
+                <ul className="flex flex-col gap-2">
+                  {BRIEFS.map((b) => (
+                    <li key={b}>
+                      <button
+                        type="button"
+                        onClick={() => send(b)}
+                        className="w-full rounded-xl border border-rule bg-sheet px-4 py-2.5 text-left text-[0.95rem] leading-snug transition-colors hover:border-action hover:bg-action/5"
+                      >
+                        {b}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
-            );
-          })}
-          {running && <Activity text="Thinking" state="working" />}
-          {error && (
-            <p role="alert" className="text-alert">
-              {error}
-            </p>
+            )}
+            {messages.map((m) => {
+              if (m.role === "user")
+                return (
+                  <p key={m.id} className="max-w-[85%] self-end rounded-2xl rounded-br-md bg-ink px-4 py-2.5 text-paper">
+                    {typeof m.content === "string" ? m.content : ""}
+                  </p>
+                );
+              if (m.role !== "assistant") return null;
+              return (
+                <div key={m.id} className="flex flex-col gap-2">
+                  {(m.toolCalls ?? []).map((c) => {
+                    const view = viewOf<unknown>(c.id, c.function.arguments, results.get(c.id), ended);
+                    if (c.function.name === "view_objective" && view.state === "done")
+                      return <ObjectiveCard key={c.id} view={view.output} />;
+                    return <Activity key={c.id} {...activity(c.function.name, view)} />;
+                  })}
+                  {/* the model often opens with blank lines, which pre-wrap would show */}
+                  {m.content?.trim() && <p className="max-w-[62ch] whitespace-pre-wrap [overflow-wrap:anywhere]">{m.content.trim()}</p>}
+                </div>
+              );
+            })}
+            {running && <Activity text="Thinking" state="working" />}
+            {error && (
+              <p role="alert" className="text-alert">
+                {error}
+              </p>
+            )}
+          </div>
+          <Composer busy={running} onSend={send} />
+        </div>
+        <div id="plat" className="order-first scroll-mt-6 lg:sticky lg:top-6 lg:order-2">
+          {latest && latestView ? (
+            <LaunchPlat key={latest.id} draft={draft} call={latest.id} view={latestView} account={account} answer={answer} />
+          ) : (
+            <Plat draft={draft} />
           )}
         </div>
-        <Composer busy={running} onSend={send} />
-      </div>
-      <div className="order-first lg:sticky lg:top-6 lg:order-2">
-        {latest ? (
-          <LaunchPlat
-            key={latest.id}
-            draft={draft}
-            call={latest.id}
-            view={viewOf<LaunchResult>(latest.id, latest.function.arguments, results.get(latest.id), ended)}
-            account={account}
-            answer={answer}
-          />
-        ) : (
-          <Plat draft={draft} />
-        )}
       </div>
     </div>
   );

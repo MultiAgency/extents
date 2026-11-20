@@ -8,7 +8,7 @@ import { describe, expect, test } from "vitest";
 
 import { specHash } from "../src/shared/spec.ts";
 import { FRONTEND_TOOLS, pendingCalls } from "../src/shared/agui-tools.ts";
-import type { Chain } from "../src/server/agent.ts";
+import { instructions, type Chain } from "../src/server/agent.ts";
 import { createApp } from "../src/server/app.ts";
 import type { ChatMessage, ChatModel, ModelReply } from "../src/server/model.ts";
 
@@ -80,10 +80,11 @@ function chain(funded: Record<string, string> = {}): Chain {
   };
 }
 
-function session(model: ChatModel, c: Chain = chain()) {
+function session(model: ChatModel, c: Chain = chain(), log?: (line: string) => void) {
   const app = createApp({
     model,
     chain: c,
+    log,
     now: () => new Date("2026-11-20T00:00:00Z"),
     deploy: async () => ({ accountId: "x" }),
     checks: { fetch },
@@ -133,6 +134,28 @@ describe("customer agent", () => {
     await s.send("balance?");
     expect(results(m.seen[1]!)).toEqual({ c1: { USDC: "89" } });
     expect(s.client.messages.at(-1)).toMatchObject({ content: "You have 89 USDC." });
+  });
+
+  test("each run logs one line: the account, and every tool call with its arguments and result", async () => {
+    const lines: string[] = [];
+    const m = scripted([call("c1", "verifier_balance", { account: ACCOUNT }), say("You have 89 USDC.")]);
+    await session(m.model, chain(), (l) => lines.push(l)).send("balance?");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /^agent run \S+ account=customer\.testnet tools: verifier_balance\(\{"account":"customer\.testnet"\}\) -> \{"USDC":"89"\}$/,
+    );
+  });
+
+  test("the instructions say only the customer funds", () => {
+    expect(instructions(ACCOUNT, "2026-11-20T00:00:00Z")).toMatch(/Only the customer funds: contributors and the evaluator need no USDC/);
+  });
+
+  test("a run that fails still logs its line", async () => {
+    const lines: string[] = [];
+    const s = session(scripted([() => new Error("model down")]).model, chain(), (l) => lines.push(l));
+    await s.send("hi");
+    expect(s.error()).toBeDefined();
+    expect(lines).toEqual([expect.stringMatching(/account=customer\.testnet tools: none$/)]);
   });
 
   test.each([

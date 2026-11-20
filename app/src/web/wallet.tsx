@@ -11,6 +11,8 @@ interface Wallet {
   near: Near | undefined;
   connect: () => void;
   disconnect: () => void;
+  /** Signs out, then opens the wallet picker: the next role in a walk-through. */
+  switchAccount: () => void;
 }
 
 const WalletContext = createContext<Wallet | null>(null);
@@ -46,12 +48,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Wallet>(
     () =>
       test
-        ? { ...test, connect: () => {}, disconnect: () => {} }
+        ? { ...test, connect: () => {}, disconnect: () => {}, switchAccount: () => {} }
         : {
             accountId,
             near: connector && accountId ? new Near({ network: NETWORK, wallet: observeWallet(fromNearConnect(connector)) }) : undefined,
             connect: () => void connector?.connect(),
             disconnect: () => void connector?.disconnect(),
+            switchAccount: () => void connector?.disconnect().finally(() => connector.connect()),
           },
     [connector, accountId, test],
   );

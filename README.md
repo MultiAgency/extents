@@ -41,7 +41,7 @@ hash is stored, and every call passes `Params` in full.
 
 ```
              mt_transfer_call(fund)             ob_attest(achieved) ───────┐ contributors by share,
-sponsor ───────────────────────────▶ objective ─┤   (all committed)         ├ remainder to sponsor
+sponsor ───────────────────────────▶ objective ─┤   (all delivered)         ├ remainder to sponsor
                                       (0s…)     ├ ob_close(), no verdict,  ─┘
 contributors ── ob_commit ──────────▶           │   window set, all delivered
              ── ob_deliver ─────────▶           ├ ob_attest(failed)        ─┐
@@ -314,10 +314,11 @@ contradicting the results (including `achieved` with a criterion skipped), a
 missing result, the wrong spec, or a fetched criterion passed without evidence
 are rejected; a fetched criterion may fail without evidence.
 
-Delivery and the acceptance window (`ob_deliver`, `Outcome::Accepted`) have
-not run on testnet: they change the contract's code hash, and the global
-contract below has not been republished. The `accepted` e2e scenario is
-written for that run.
+The current contract is published on testnet as global code
+`4GxG7Nyek6NcaKqkGfDoXrBwspYPE7gA1ADigd3JoiTF` (SHA-256 `30a94195…`), the
+reproducible build of commit `c50d0bb`, which passed the full sandbox suite
+before publishing. The e2e scenarios, including `accepted`, have not yet run
+against it.
 
 Historical testnet evidence (predates current delivery, acceptance and cleanup changes):
 established on testnet against Tidepool's Verifier, the same v0.4.5 build as
@@ -371,7 +372,7 @@ Verifier's operator roles:
   pays every share exactly. Past the deadline, `ob_close` then deletes the
   account.
 - **The testnet scenarios, as a regression suite.** Achieved (refused until
-  all have committed), failed, expired (with the `StateInit` refund and
+  all have delivered), failed, expired (with the `StateInit` refund and
   deletion paying the closer), commitment and attestation by signed intent,
   and ten contributors settling in one transaction, directly and by signed
   intent. Deadlines are reached by producing blocks, so the suite needs no
@@ -408,8 +409,8 @@ Established on testnet by [`e2e/`](e2e/README.md#a-dao-signing-intents-by-vote)
 Not yet established:
 
 - **A DAO funding, committing to and attesting an objective by intent.** The
-  signing path is shown, but objective calls on testnet need the current
-  contract republished, because `Params` gained fields since `FS91Wimv…`.
+  signing path is shown; objective calls against the current contract on
+  testnet have not yet run.
 - **Filing through Trezu's UI.** The template's output is checked against
   the CLI's by a unit test, but it hasn't been loaded into Trezu.
 - **Funding and deploying in one step.** `StateInit` on Verifier transfers and

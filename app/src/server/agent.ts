@@ -30,7 +30,12 @@ export interface AgentDeps {
   newId?: () => string;
   /** Model steps one run may take. */
   maxSteps?: number;
+  /** Where each run's one-line trace goes; the server log by default. */
+  log?: (line: string) => void;
 }
+
+/** A trace field cut to a readable length: tool arguments can be whole specs. */
+const clip = (s: string) => (s.length > 200 ? `${s.slice(0, 200)}…` : s);
 
 /** Executed in the browser: the customer reviews the exact terms on a card and signs. */
 export const LAUNCH = "launch_objective";
@@ -126,8 +131,10 @@ function parseJson(s: string): unknown {
 
 /** One run: model steps until a final answer, a pending launch, or the step budget. */
 export async function* runAgent(input: RunAgentInput, account: string, deps: AgentDeps, signal: AbortSignal): AsyncGenerator<BaseEvent> {
-  const { model, chain, now = () => new Date(), newId = () => crypto.randomUUID(), maxSteps = 12 } = deps;
+  const { model, chain, now = () => new Date(), newId = () => crypto.randomUUID(), maxSteps = 12, log = console.info } = deps;
   const { threadId, runId } = input;
+  // what this run did, for the server log: whose run it was, and every tool call with its arguments and result
+  const trace: string[] = [];
   yield { type: EventType.RUN_STARTED, threadId, runId } as BaseEvent;
   try {
     let draft = parseDraft(input.state);
@@ -174,6 +181,7 @@ export async function* runAgent(input: RunAgentInput, account: string, deps: Age
       for (const c of calls) {
         if (c.name === LAUNCH) {
           pending.push(c.id);
+          trace.push(`${c.name}(${clip(c.arguments)}) pending`);
           draft = nextDraft(draft, c.name, parseJson(c.arguments), undefined, account);
           yield { type: EventType.STATE_SNAPSHOT, snapshot: draft } as BaseEvent;
           continue;
@@ -187,6 +195,7 @@ export async function* runAgent(input: RunAgentInput, account: string, deps: Age
           }
         }
         const content = JSON.stringify(ran.result);
+        trace.push(`${c.name}(${clip(c.arguments)}) -> ${clip(content)}`);
         yield { type: EventType.TOOL_CALL_RESULT, messageId: newId(), toolCallId: c.id, content } as BaseEvent;
         messages.push({ role: "tool", tool_call_id: c.id, content });
       }
@@ -203,6 +212,8 @@ export async function* runAgent(input: RunAgentInput, account: string, deps: Age
       type: EventType.RUN_ERROR,
       message: signal.aborted ? "The run stopped. Retry when you are ready." : "An error occurred.",
     } as BaseEvent;
+  } finally {
+    log(`agent run ${runId} account=${account} tools: ${trace.length ? trace.join(" | ") : "none"}`);
   }
 }
 
@@ -269,7 +280,7 @@ export function instructions(account: string, now: string, draft: DraftState = p
 The customer is ${account}. It is now ${now}.
 
 How an objective works:
-- The customer funds it with ${TOKEN.symbol} (Tidepool testnet, no real value) held on the NEAR Intents Verifier.
+- The customer funds it with ${TOKEN.symbol} (Tidepool testnet, no real value) held on the NEAR Intents Verifier. Only the customer funds: contributors and the evaluator need no ${TOKEN.symbol} and are never asked for any; contributors are paid from the customer's funding.
 - Contributors are NEAR accounts who will do the work. Each gets a share of the payout in percent; shares sum to 100. At most 10. Each must commit, and later deliver, on-chain.
 - The evaluator is the account that judges whether the objective was achieved, against the spec. Suggest ${DEFAULT_EVALUATOR} unless the customer names another. It cannot also be a contributor, and neither can the customer.
 - The deadline (RFC 3339 UTC to the second, e.g. 2027-01-15T18:00:00Z) is the last moment to fund, commit and deliver. With no verdict by then, everything returns to the customer.

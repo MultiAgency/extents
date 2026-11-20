@@ -31,7 +31,7 @@ failure is simulated.
   - the Sputnik DAO, from mainnet `agentic.sputnik-dao.near`:
     `bf6f951e…d7f6`;
   - the NEP-141 test token, `releases/fungible-token.wasm` of `near/intents`
-    at `dbad9c8`, from GitHub: `12c5f9bd…a355`.
+    at `dbad9c8`, from GitHub: `12c5f9bd…a354`.
 
 ## Run
 
