@@ -5,7 +5,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { expect, type Page } from "@playwright/test";
 
 import { attestProposal, attestationOf } from "../../src/shared/attest.ts";
-import { reportHash, buildReview, type CheckResult } from "../../src/shared/review.ts";
+import { reportHash, buildReview, summarize, type CheckResult } from "../../src/shared/review.ts";
 import { reviewHash } from "../../src/shared/spec.ts";
 import { test, setup } from "./fixtures.ts";
 
@@ -144,6 +144,30 @@ const DELIVERED = [
 ];
 const REVIEW = buildReview(ADDRESS, SPEC as never, DELIVERED, PASSED)!;
 
+function checkBody(results: CheckResult[], result: unknown): string {
+  return [
+    { type: "RUN_STARTED", threadId: "t", runId: "r" },
+    ...SPEC.criteria.flatMap((c) => [
+      { type: "TOOL_CALL_START", toolCallId: c.id, toolCallName: "check", parentMessageId: "m" },
+      {
+        type: "TOOL_CALL_ARGS",
+        toolCallId: c.id,
+        delta: JSON.stringify({ criterion_id: c.id, description: c.description, kind: c.check.kind }),
+      },
+      { type: "TOOL_CALL_END", toolCallId: c.id },
+    ]),
+    ...results.map((res, i) => ({
+      type: "TOOL_CALL_RESULT",
+      messageId: `r${i}`,
+      toolCallId: res.criterion_id,
+      content: JSON.stringify(res),
+    })),
+    { type: "RUN_FINISHED", threadId: "t", runId: "r", result },
+  ]
+    .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+    .join("");
+}
+
 /** The evaluation as the server streams it, ending with these results' review (if any). */
 async function evaluation(page: Page, results: CheckResult[]) {
   await page.route("**/__tx?**", (r) =>
@@ -175,31 +199,215 @@ async function evaluation(page: Page, results: CheckResult[]) {
     verdict: review?.verdict ?? "undecided",
   };
   await page.route("**/api/evaluate", (r) => {
-    const events = [
-      { type: "RUN_STARTED", threadId: "t", runId: "r" },
-      ...SPEC.criteria.flatMap((c) => [
-        { type: "TOOL_CALL_START", toolCallId: c.id, toolCallName: "check", parentMessageId: "m" },
-        {
-          type: "TOOL_CALL_ARGS",
-          toolCallId: c.id,
-          delta: JSON.stringify({ criterion_id: c.id, description: c.description, kind: c.check.kind }),
-        },
-        { type: "TOOL_CALL_END", toolCallId: c.id },
-      ]),
-      ...results.map((res, i) => ({
-        type: "TOOL_CALL_RESULT",
-        messageId: `r${i}`,
-        toolCallId: res.criterion_id,
-        content: JSON.stringify(res),
-      })),
-      { type: "RUN_FINISHED", threadId: "t", runId: "r", result: { summary, delivered: DELIVERED, ...(review ? { review } : {}) } },
-    ];
     return r.fulfill({
       headers: { "content-type": "text/event-stream" },
-      body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""),
+      body: checkBody(results, { summary, delivered: DELIVERED, ...(review ? { review } : {}) }),
     });
   });
 }
+
+test("editing a checked report marks its results stale until it is checked again", async ({ page }) => {
+  await setup(page);
+  await objective(page, { committed: 1 });
+  const reports: string[] = [];
+  await page.route("**/api/check", (route) => {
+    const report = route.request().postDataJSON().forwardedProps.deliverable.text as string;
+    reports.push(report);
+    const results: CheckResult[] =
+      report === REPORT ? PASSED : [{ ...PASSED[0]!, outcome: "fail", detail: "Attendees: 12, needs at least 30" }, PASSED[1]!];
+    return route.fulfill({
+      headers: { "content-type": "text/event-stream" },
+      body: checkBody(results, summarize(results)),
+    });
+  });
+  await page.goto(`/o/${ADDRESS}`);
+  const report = page.getByRole("textbox", { name: "Report", exact: true });
+  await report.fill(REPORT);
+  await page.getByRole("button", { name: "Check my work" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Ready to deliver" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Checks" })).toBeVisible();
+
+  const edited = REPORT.replace("34", "12");
+  await report.fill(edited);
+  await expect(page.getByRole("status").filter({ hasText: "Report changed" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Ready to deliver" })).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Checks" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Check my work" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "checks fail" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "Checks" })).toContainText("Attendees: 12");
+  await expect(page.getByRole("status").filter({ hasText: "Report changed" })).toHaveCount(0);
+  expect(reports).toEqual([REPORT, edited]);
+});
+
+test("a check finishing after the report was edited remains stale", async ({ page }) => {
+  await setup(page);
+  await objective(page, { committed: 1 });
+  let requested = false;
+  let release!: () => void;
+  const response = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/check", async (route) => {
+    requested = true;
+    await response;
+    await route.fulfill({
+      headers: { "content-type": "text/event-stream" },
+      body: checkBody(PASSED, summarize(PASSED)),
+    });
+  });
+  await page.goto(`/o/${ADDRESS}`);
+  const report = page.getByRole("textbox", { name: "Report", exact: true });
+  await report.fill(REPORT);
+  await page.getByRole("button", { name: "Check my work" }).click();
+  await expect.poll(() => requested).toBe(true);
+  await report.fill(REPORT.replace("34", "12"));
+  release();
+  await expect(page.getByRole("button", { name: "Check my work" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Report changed" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Ready to deliver" })).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Checks" })).toHaveCount(0);
+});
+
+test("reevaluation retains proposal status for the same review", async ({ page }) => {
+  const chain = await setup(page, { txs: [], published: true, funded: true }, "member.testnet");
+  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+  await evaluation(page, PASSED);
+  await page.goto(`/o/${ADDRESS}`);
+  await page.getByRole("button", { name: "Check the deliveries" }).click();
+  await page.getByRole("button", { name: "Propose achieved to agency.testnet" }).click();
+  await expect(page.getByText("Proposed as #0.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "The results support achieved" })).toBeVisible();
+  await expect(page.getByText("Proposed as #0.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Propose achieved to agency.testnet" })).toHaveCount(0);
+  expect(chain.txs.filter((tx) => tx.calls[0]!.method === "add_proposal")).toHaveLength(1);
+});
+
+const FAILED: CheckResult[] = [{ ...PASSED[0]!, outcome: "fail", detail: "Attendance could not be established" }, PASSED[1]!];
+const REVISED: CheckResult[] = [{ ...PASSED[0]!, detail: "Attendees: 34, verified again" }, PASSED[1]!];
+
+for (const [change, results] of [
+  ["different verdict", FAILED],
+  ["same verdict, different hash", REVISED],
+] as const) {
+  test(`proposal status follows the exact review: ${change}`, async ({ page }) => {
+    const chain = await setup(page, { txs: [], published: true, funded: true }, "member.testnet");
+    await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+    await evaluation(page, PASSED);
+    await page.goto(`/o/${ADDRESS}`);
+    await page.getByRole("button", { name: "Check the deliveries" }).click();
+    await page.getByRole("button", { name: "Propose achieved to agency.testnet" }).click();
+    await expect(page.getByText("Proposed as #0.")).toBeVisible();
+
+    const nextReview = buildReview(ADDRESS, SPEC as never, DELIVERED, results)!;
+    await evaluation(page, results);
+    await page.getByRole("button", { name: "Check again" }).click();
+    await expect(page.getByRole("status").filter({ hasText: `The results support ${nextReview.verdict}` })).toBeVisible();
+    await expect(page.getByText("Proposed as #0.")).toHaveCount(0);
+    await expect(page.getByText(reviewHash(nextReview))).toBeVisible();
+    await page.getByRole("button", { name: `Propose ${nextReview.verdict} to agency.testnet` }).click();
+    await expect(page.getByText("Proposed as #1.")).toBeVisible();
+
+    await evaluation(page, PASSED);
+    await page.getByRole("button", { name: "Check again" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "The results support achieved" })).toBeVisible();
+    await expect(page.getByText("Proposed as #0.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Propose achieved to agency.testnet" })).toHaveCount(0);
+    expect(chain.txs.filter((tx) => tx.calls[0]!.method === "add_proposal")).toHaveLength(2);
+  });
+}
+
+test("a hashless filing override belongs only to its review", async ({ page }) => {
+  const chain = await setup(
+    page,
+    { txs: [], published: true, funded: true, uncertain: "add_proposal", proposalsHidden: true },
+    "member.testnet",
+  );
+  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+  await evaluation(page, PASSED);
+  await page.goto(`/o/${ADDRESS}`);
+  await page.getByRole("button", { name: "Check the deliveries" }).click();
+  const propose = page.getByRole("button", { name: "Propose achieved to agency.testnet" });
+  await propose.click();
+  await expect(page.getByRole("alert").filter({ hasText: "Connection closed" })).toBeVisible();
+  await propose.click();
+  const override = page.getByRole("button", { name: /File again anyway/ });
+  await expect(override).toBeVisible();
+
+  await evaluation(page, FAILED);
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(page.getByRole("button", { name: "Propose failed to agency.testnet" })).toBeVisible();
+  await expect(override).toHaveCount(0);
+
+  await evaluation(page, PASSED);
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "The results support achieved" })).toBeVisible();
+  await expect(override).toBeVisible();
+  expect(chain.txs.filter((tx) => tx.calls[0]!.method === "add_proposal")).toHaveLength(1);
+});
+
+test("a late filing completion stays attached to the review that was signed", async ({ page }) => {
+  const chain = await setup(page, { txs: [], published: true, funded: true }, "member.testnet");
+  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+  await evaluation(page, PASSED);
+  let requested = false;
+  let release!: () => void;
+  const proof = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/__tx?**", async (route) => {
+    requested = true;
+    await proof;
+    await route.fallback();
+  });
+  await page.goto(`/o/${ADDRESS}`);
+  await page.getByRole("button", { name: "Check the deliveries" }).click();
+  await page.getByRole("button", { name: "Propose achieved to agency.testnet" }).click();
+  await expect.poll(() => requested).toBe(true);
+
+  await evaluation(page, FAILED);
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "The results support failed" })).toBeVisible();
+  release();
+  await expect.poll(() => chain.txs.filter((tx) => tx.calls[0]!.method === "add_proposal").length).toBe(1);
+  const proposeFailed = page.getByRole("button", { name: "Propose failed to agency.testnet" });
+  await expect(proposeFailed).toBeVisible();
+  await expect(proposeFailed).not.toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByText("Proposed as #0.")).toHaveCount(0);
+  expect(chain.txs.find((tx) => tx.calls[0]!.method === "add_proposal")!.calls[0]!.args).toEqual(
+    attestProposal(ADDRESS, PARAMS as never, attestationOf(REVIEW)),
+  );
+
+  await evaluation(page, PASSED);
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "The results support achieved" })).toBeVisible();
+  await expect(page.getByText("Proposed as #0.")).toBeVisible();
+});
+
+test("unencodable attestation terms are reported without crashing the evaluator", async ({ page }) => {
+  const chain = await setup(page, { txs: [], published: true, funded: true }, "member.testnet");
+  // Unknown Params fields do not affect address derivation, but are still returned by the document reader.
+  await objective(
+    page,
+    { committed: 3, delivered: 1 },
+    {
+      documents: { params: { ...PARAMS, padding: "x".repeat(1_000_000) }, spec: SPEC },
+      evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] },
+    },
+  );
+  await evaluation(page, PASSED);
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(`/o/${ADDRESS}`);
+  await page.getByRole("button", { name: "Check the deliveries" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "can't be attested" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Evaluate", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Propose achieved/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+  expect(chain.txs).toHaveLength(0);
+});
 
 test("the evaluator checks the deliveries, publishes the review and attests its hash", async ({ page }) => {
   const chain = await setup(page, { txs: [], published: true, funded: true }, "agency.testnet");

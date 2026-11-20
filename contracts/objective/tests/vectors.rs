@@ -107,6 +107,27 @@ fn vector(name: &str, params: &Params) -> Value {
     })
 }
 
+/// The contract derives its own address with near-sdk when it checks funding;
+/// the pinned account ids come from near-kit. Both must agree.
+#[test]
+fn near_sdk_derives_the_pinned_accounts() {
+    use near_sdk::{
+        GlobalContractId,
+        state_init::{StateInit as SdkStateInit, StateInitV1},
+    };
+
+    let code_hash: CryptoHash = CODE_HASH.parse().unwrap();
+    for (name, params) in cases() {
+        let pinned = vector(name, &params)["account_id"].clone();
+        let derived = SdkStateInit::V1(StateInitV1 {
+            code: GlobalContractId::CodeHash(*code_hash.as_bytes()),
+            data: ContractStorage::init_state(&params).unwrap(),
+        })
+        .derive_account_id();
+        assert_eq!(derived.as_str(), pinned, "{name}");
+    }
+}
+
 #[test]
 fn params_vectors_match_the_contract() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/vectors/params.json");

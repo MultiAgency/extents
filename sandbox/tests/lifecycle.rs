@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use extents_client::objective::Objective;
-use extents_objective::{Attestation, Verdict, auth_call::Action};
+use extents_objective::{Attestation, Verdict, auth_call::Action, gas};
 use extents_sandbox::{Env, Receipt, call};
 use near_kit::{Gas, NearToken};
 use serde_json::json;
@@ -295,14 +295,15 @@ async fn all_committed(env: &Env, auth_call: bool) -> Result<Objective> {
     Ok(objective)
 }
 
-/// Eleven payouts each fit in their 15 Tgas, and the callback in its 10.
+/// Eleven payouts each get at least their static 15 Tgas, plus a share of
+/// any gas left over, and each fits within the static floor alone; the
+/// callback fits in its 10.
 fn assert_eleven_payouts_fit(outcome: &extents_sandbox::Outcome) {
+    let floor = Gas::from_gas(gas::MT_TRANSFER.as_gas());
     let payouts = outcome.calls("mt_transfer");
     assert_paid(&payouts, 11);
     assert!(
-        payouts
-            .iter()
-            .all(|r| r.gas == Gas::from_tgas(15) && r.burnt < r.gas),
+        payouts.iter().all(|r| r.gas >= floor && r.burnt < floor),
         "{payouts:?}"
     );
     let callback = outcome.calls("ob_resolve_transfers");

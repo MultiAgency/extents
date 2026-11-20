@@ -265,7 +265,7 @@ fn achieved_pays_contributors_and_retries_failures() {
     call_from("anyone.test", vec![]);
     assert!(matches!(
         contract.ob_close(p.clone()),
-        PromiseOrValue::Promise(_)
+        PromiseOrValue::Value(false)
     ));
     call_from(SELF, vec![PromiseResult::Successful(vec![])]);
     contract.ob_resolve_transfers(vec![sent(Recipient::Contributor(1), "c1.test", 300)]);
@@ -1086,19 +1086,18 @@ fn payouts_share_unused_gas() {
     );
 }
 
-/// A payout that succeeded counts as paid whatever it returned; the callback
-/// reports that nothing was deleted.
+/// A payout that succeeded counts as paid whatever it returned.
 #[test]
 fn a_successful_payout_is_paid_whatever_it_returns() {
     let (mut contract, _) = settled(&[1_000_000]);
     state(&mut contract).in_flight = 1;
     call_from(SELF, vec![PromiseResult::Successful(b"\"ok\"".to_vec())]);
-    let deleted = contract.ob_resolve_transfers(vec![Sent {
+    // returns nothing, as `ob_attest`'s payout chain promises
+    let () = contract.ob_resolve_transfers(vec![Sent {
         recipient: Recipient::Contributor(0),
         receiver_id: id("c0.test"),
         amount: U128(5),
     }]);
-    assert!(!deleted);
     assert!(owed(&contract).is_empty());
     assert_eq!(
         event("paid")["amounts"],
@@ -1122,4 +1121,27 @@ fn an_undecodable_balance_reply_changes_nothing() {
     ));
     assert_eq!(contract.ob_view().no_verify().in_flight, 0);
     assert!(contract.0.0.is_some());
+}
+
+/// Retrying payouts before the last moment to attest answers `false` at once:
+/// nothing can be deleted yet, and the payouts run on their own.
+#[test]
+fn an_early_retry_answers_not_deleted() {
+    let p = params(&[1_000_000], 3600);
+    let mut contract = deploy(&p);
+    fund(&mut contract, &p, "sponsor.test", 10);
+    call_from("evaluator.test", vec![]);
+    contract
+        .ob_attest(p.clone(), Verdict::Failed.into())
+        .detach_if_promise();
+    // the payout failed and went back into owed
+    state(&mut contract).in_flight = 0;
+    state(&mut contract).owed.insert(Recipient::Sponsor, 10);
+    call_from("anyone.test", vec![]);
+    assert!(matches!(
+        contract.close(&p),
+        Ok(PromiseOrValue::Value(false))
+    ));
+    assert_eq!(contract.ob_view().no_verify().in_flight, 1);
+    assert!(owed(&contract).is_empty());
 }

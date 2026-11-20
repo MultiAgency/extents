@@ -66,6 +66,11 @@ and `SCREENS=<dir> pnpm capture:screens` takes screenshots for review.
 - **Anyone else** can check a report against the terms.
 
 Both runs are AG-UI: each criterion is a `check` tool call that starts at once and resolves as its result arrives.
+Draft check results belong to the exact report and objective submitted. Editing the report hides those results and
+marks them stale until the current report is checked, including when an earlier check finishes after the edit.
+Attestation feedback, proposal ids and hashless-filing overrides belong to the exact attestation call. Reevaluating
+the same review retains that feedback; a different review has its own state, including when an earlier filing finishes later.
+If the review or attestation call cannot be prepared, the page reports the error and offers no attestation.
 
 A verdict follows the results: `achieved` only when every criterion passed, `failed` when one failed. A skipped check cannot support achievement. If no check failed and at least one was skipped, there is no verdict to attest. The contract refuses `achieved`
 unless every contributor committed, and any attestation after the effective deadline. The page uses the live state's

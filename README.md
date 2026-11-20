@@ -169,6 +169,13 @@ Deletion waits for the last moment to attest so that redeploying the same
   account no code controls, since the Verifier does not check that an account
   exists. Nobody else can claim that NEP-616 id, and nobody can move the
   balance.
+- **Payout gas has a ceiling.** Each payout is reserved 15 Tgas and shares
+  any gas the caller attaches beyond what the call reserves. A retry sends
+  everything owed in one batch, so each payout gets at most roughly (300 Tgas
+  minus the batch callback and the call's own execution) divided by the
+  number of payouts owed, about 21–25 Tgas with eleven. Should a Verifier
+  upgrade make `mt_transfer` cost more than that, those payouts could not be
+  sent.
 - **Deletion can be blocked.** An objective deletes itself only at a zero
   balance, so anyone can keep one alive by sending it a unit. Deletion protects
   no funds or rights; it only clears state.

@@ -30,15 +30,12 @@ pub struct Sent {
 
 #[near]
 impl Contract {
-    /// Returns `false`: the account is never deleted here, and `ob_close`
-    /// returns this when it only retries payouts.
     #[private]
-    pub fn ob_resolve_transfers(&mut self, sent: Vec<Sent>) -> bool {
+    pub fn ob_resolve_transfers(&mut self, sent: Vec<Sent>) {
         self.0
             .on_callback()
             .and_then(|state| state.resolve_transfers(sent))
             .unwrap_or_else(|err| err.panic());
-        false
     }
 
     /// Acts on a reading of a settled objective's own Verifier balance, where
@@ -82,7 +79,13 @@ impl Contract {
             Some(transfers) if settling => {
                 PromiseOrValue::Promise(state.check_balance(params, Some(transfers))?)
             }
-            Some(transfers) => PromiseOrValue::Promise(transfers),
+            // only retrying payouts: nothing can be deleted yet, so the
+            // answer is already known, and the payouts and their callback
+            // run on their own
+            Some(transfers) => {
+                transfers.detach();
+                PromiseOrValue::Value(false)
+            }
             None if state.is_settled() => {
                 PromiseOrValue::Promise(state.check_balance(params, None)?)
             }

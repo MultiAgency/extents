@@ -398,27 +398,35 @@ const Alert = ({ children }: { children?: string }) =>
 /** Runs the spec's checks on the report and shows each criterion resolve, live. */
 function Checklist({ address, report }: { address: string; report: string }) {
   const { rows, result: summary, running, error, run } = useCheckRun<CheckSummary>("/api/check");
+  const [checkedInput, setCheckedInput] = useState<{ address: string; report: string }>();
+  const stale = checkedInput !== undefined && (checkedInput.address !== address || checkedInput.report !== report);
   return (
     <div className="flex flex-col gap-3">
       <button
         type="button"
         aria-disabled={running || !report.trim() || undefined}
-        onClick={() => !running && report.trim() && void run({ objective: address, deliverable: { text: report } })}
+        onClick={() => {
+          if (running || !report.trim()) return;
+          setCheckedInput({ address, report });
+          void run({ objective: address, deliverable: { text: report } });
+        }}
         className="self-start rounded-full border border-ink px-5 py-2.5 font-display font-semibold aria-disabled:opacity-50"
       >
         {running ? "Checking…" : "Check my work"}
       </button>
-      <CheckRows rows={rows} />
-      <p role="status" aria-live="polite" className={summary?.failed ? "text-alert" : "text-sealed"}>
-        {summary
-          ? summary.failed
-            ? `${summary.failed} of ${summary.passed + summary.failed + summary.skipped} checks fail. Fix them before you deliver.`
-            : summary.passed
-              ? `Every check that can run passes${summary.skipped ? ` (${summary.skipped} left to the evaluator)` : ""}. Ready to deliver.`
-              : "Nothing could be checked yet."
-          : ""}
+      <CheckRows rows={stale ? [] : rows} />
+      <p role="status" aria-live="polite" className={stale ? "text-ink-soft" : summary?.failed ? "text-alert" : "text-sealed"}>
+        {stale
+          ? "Report changed. Check it again to update the results."
+          : summary
+            ? summary.failed
+              ? `${summary.failed} of ${summary.passed + summary.failed + summary.skipped} checks fail. Fix them before you deliver.`
+              : summary.passed
+                ? `Every check that can run passes${summary.skipped ? ` (${summary.skipped} left to the evaluator)` : ""}. Ready to deliver.`
+                : "Nothing could be checked yet."
+            : ""}
       </p>
-      <Alert>{error}</Alert>
+      <Alert>{stale ? undefined : error}</Alert>
     </div>
   );
 }
@@ -449,14 +457,12 @@ function Evaluator(props: {
   const { address, account, params, spec, dao, allCommitted, effectiveDeadline, deliveredBy, near, onChange } = props;
   const { rows, result, running, error, run } = useCheckRun<Evaluation>("/api/evaluate");
   const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<string>();
-  /** The DAO proposals that carry this attestation, oldest first; more than one is a duplicate. */
-  const [proposed, setProposed] = useState<number[]>();
-  /** A filing this browser sent with no transaction hash to settle it by. */
-  const [hashless, setHashless] = useState(false);
+  /** Each exact attestation keeps its own filing result, including while another review is checked or signed. */
+  const [filings, setFilings] = useState<Record<string, { proposed?: number[]; hashless?: boolean; failure?: string }>>({});
 
   let review: Review | undefined;
   let invalid: string | undefined;
+  let key: string | undefined;
   try {
     review = result?.review && parseReview(result.review, spec);
     if (review && result) {
@@ -468,11 +474,17 @@ function Evaluator(props: {
         review.deliverables.some((d) => !delivered.some((r) => r.contributor === d.contributor && r.delivery_hash === d.sha256))
       )
         throw new Error("The review does not name the verified reports");
+      key = filingKey(params.evaluator, attestProposal(address, params, attestationOf(review)));
     }
   } catch (e) {
     review = undefined;
-    invalid = `The review doesn't validate, so it can't be attested: ${e instanceof Error ? e.message : e}`;
+    invalid = `This review can't be attested: ${e instanceof Error ? e.message : e}`;
   }
+  const { proposed, hashless, failure } = (key && filings[key]) || {};
+  // An async completion updates the call it started with, even if the displayed review has since changed.
+  const updateFiling = (change: { proposed?: number[]; hashless?: boolean; failure?: string }) => {
+    if (key) setFilings((saved) => ({ ...saved, [key]: { ...saved[key], ...change } }));
+  };
   const expired = timestampNanos(effectiveDeadline) < BigInt(Date.now()) * 1_000_000n;
   const blocked = expired
     ? "The deadline has passed, so the evaluator can no longer attest. Anyone can now close the objective."
@@ -483,7 +495,7 @@ function Evaluator(props: {
   const attest = async () => {
     if (!review || !result) return;
     setBusy(true);
-    setFailure(undefined);
+    updateFiling({ failure: undefined });
     try {
       await Promise.all(
         result.delivered.map(async (d) => {
@@ -496,10 +508,10 @@ function Evaluator(props: {
       await publishFastData(near, account, address, { review });
       if (dao) {
         try {
-          setProposed(await fileAttestation(near, account, calls.propose(address, params, attestationOf(review), dao.proposal_bond)));
-          setHashless(false);
+          const proposed = await fileAttestation(near, account, calls.propose(address, params, attestationOf(review), dao.proposal_bond));
+          updateFiling({ proposed, hashless: false });
         } catch (e) {
-          setHashless(e instanceof HashlessFiling);
+          updateFiling({ hashless: e instanceof HashlessFiling });
           throw e;
         }
       } else {
@@ -507,7 +519,7 @@ function Evaluator(props: {
       }
       await onChange();
     } catch (e) {
-      setFailure(e instanceof Error ? e.message : String(e));
+      updateFiling({ failure: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(false);
     }
@@ -574,9 +586,8 @@ function Evaluator(props: {
         <button
           type="button"
           onClick={() => {
-            setAside(filingKey(params.evaluator, attestProposal(address, params, attestationOf(review))));
-            setHashless(false);
-            setFailure(undefined);
+            if (key) setAside(key);
+            updateFiling({ hashless: false, failure: undefined });
           }}
           className="self-start rounded-full border border-alert px-5 py-2.5 font-display font-semibold text-alert"
         >
