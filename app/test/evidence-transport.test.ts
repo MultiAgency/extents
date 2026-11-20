@@ -88,3 +88,23 @@ test("ten concurrent evidence requests queue instead of rejecting their ninth an
   expect(await Promise.all(results.map((r) => r.text()))).toEqual(Array(10).fill("evidence"));
   expect(connected).toHaveLength(10);
 });
+
+test("a valid seven-criterion evaluation queues all seventy healthy requests", async () => {
+  const { runCheck } = await import("../src/server/checks.ts");
+  const { validateAppSpec } = await import("../src/shared/spec.ts");
+  const spec = {
+    v: 1,
+    statement: "Ten sources per criterion",
+    criteria: Array.from({ length: 7 }, (_, i) => ({
+      id: `sources-${i}`,
+      description: "Ten cited sources load",
+      check: { kind: "sources" as const, min: 10, figures: false },
+    })),
+  };
+  validateAppSpec(spec);
+  responses = Array.from({ length: 70 }, () => ({ status: 200, body: Buffer.from("source") }));
+  const text = Array.from({ length: 10 }, (_, i) => `https://example.org/${i}`).join("\n");
+  const results = await Promise.all(spec.criteria.map((c) => runCheck(c, spec, { text }, { fetch: evidenceFetch as typeof fetch })));
+  expect(results.map((r) => r.outcome)).toEqual(Array(7).fill("pass"));
+  expect(connected).toHaveLength(70);
+});

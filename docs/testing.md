@@ -27,7 +27,7 @@ For real contract execution, build a WASM, record its SHA-256, then run:
 
 ```sh
 EXTENTS_OBJECTIVE_WASM=/absolute/path/to/extents_objective.wasm \
-cargo test -p extents-sandbox -- --ignored --test-threads=1
+cargo nextest run -p extents-sandbox --run-ignored only
 ```
 
 This needs Docker. Pinning the artifact keeps a concurrent rebuild from changing

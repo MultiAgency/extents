@@ -30,7 +30,8 @@ pub trait Objective {
     fn ob_view(&self) -> &Storage;
 
     /// Records the caller's agreement to deliver its part. Only a listed
-    /// contributor, only before a verdict and the deadline, only once.
+    /// contributor, or its backup once `commit_by` passed and the slot is
+    /// empty; only before a verdict and the deadline, only once per slot.
     fn ob_commit(&mut self, params: Params);
 
     /// Records a committed contributor's delivery, by hash. Only once,

@@ -14,7 +14,7 @@ import { objectiveCodeHash, TOKEN } from "../shared/config.ts";
 import { buildObjective, proposal } from "../shared/objective.ts";
 import { randomSalt, type Params } from "../shared/params.ts";
 import { accountId, type Review } from "../shared/spec.ts";
-import { RUN_MS, withTimeout } from "./bounded.ts";
+import { abortable, RUN_MS, withTimeout } from "./bounded.ts";
 import { runEvaluation, type CheckRunDeps } from "./precheck.ts";
 import { SERVER_TOOLS } from "./tools.ts";
 
@@ -65,7 +65,7 @@ function createServer(deps: McpDeps): McpServer {
     server.registerTool(
       name,
       { description: tool.description, inputSchema, annotations: { readOnlyHint: true, openWorldHint: true } },
-      async (input) => json(await tool.run(input as never, chain)),
+      async (input) => json(await abortable(deps.signal, () => tool.run(input as never, chain, deps.signal))),
     );
   }
 

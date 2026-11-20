@@ -20,6 +20,7 @@ import { DEFAULT_MODEL, type ChatMessage, type ChatModel, type ModelReply, type 
 export type { Chain } from "./tools.ts";
 import type { Chain } from "./tools.ts";
 import { SERVER_TOOLS } from "./tools.ts";
+import { abortable } from "./bounded.ts";
 
 export interface AgentDeps {
   model: ChatModel;
@@ -55,7 +56,7 @@ const text = (content: Message["content"]): string =>
  * answered by what the chain confirms, or as abandoned when the
  * conversation moved past them.
  */
-export async function chatHistory(messages: Message[], chain: Chain, account?: string): Promise<ChatMessage[]> {
+export async function chatHistory(messages: Message[], chain: Chain, account?: string, signal?: AbortSignal): Promise<ChatMessage[]> {
   const answers = new Map(messages.flatMap((m) => (m.role === "tool" ? [[m.toolCallId, m] as const] : [])));
   const out: ChatMessage[] = [];
   for (const m of messages) {
@@ -71,7 +72,9 @@ export async function chatHistory(messages: Message[], chain: Chain, account?: s
     for (const c of launches) {
       const answer = answers.get(c.id);
       const claimed = answer ? launchResult.safeParse(parseJson(text(answer.content))) : undefined;
-      const result = claimed?.success ? await confirmLaunch(claimed.data, chain, parseJson(c.function.arguments), account) : MOVED_ON;
+      const result = claimed?.success
+        ? await confirmLaunch(claimed.data, chain, parseJson(c.function.arguments), account, signal)
+        : MOVED_ON;
       out.push({ role: "tool", tool_call_id: c.id, content: JSON.stringify(result) });
     }
   }
@@ -79,9 +82,15 @@ export async function chatHistory(messages: Message[], chain: Chain, account?: s
 }
 
 /** A launch the browser reports is believed only as far as the chain shows it. */
-async function confirmLaunch(claimed: LaunchResult, chain: Chain, input: unknown, account?: string): Promise<LaunchResult> {
+async function confirmLaunch(
+  claimed: LaunchResult,
+  chain: Chain,
+  input: unknown,
+  account?: string,
+  signal?: AbortSignal,
+): Promise<LaunchResult> {
   if (!claimed.launched) return claimed;
-  const view = await chain.describeObjective(claimed.objective);
+  const view = await abortable(signal, () => chain.describeObjective(claimed.objective, signal));
   const funded = BigInt(view.state?.funded ?? "0");
   if (!view.deployed || funded === 0n) return { launched: false, reason: `${claimed.objective} is not funded on chain` };
   const p = proposal.safeParse(input);
@@ -123,10 +132,11 @@ export async function* runAgent(input: RunAgentInput, account: string, deps: Age
     let draft = parseDraft(input.state);
     const messages: ChatMessage[] = [
       { role: "system", content: instructions(account, now().toISOString(), draft) },
-      ...(await chatHistory(input.messages, chain, account)),
+      ...(await chatHistory(input.messages, chain, account, signal)),
     ];
     const tools = toolDefinitions();
     for (let step = 0; step < maxSteps; step++) {
+      signal.throwIfAborted();
       const messageId = newId();
       let reply: ModelReply | undefined;
       let open = false;
@@ -167,7 +177,7 @@ export async function* runAgent(input: RunAgentInput, account: string, deps: Age
           yield { type: EventType.STATE_SNAPSHOT, snapshot: draft } as BaseEvent;
           continue;
         }
-        const ran = await runServerTool(c.name, c.arguments, chain);
+        const ran = await runServerTool(c.name, c.arguments, chain, signal);
         if (ran.input !== undefined) {
           const next = nextDraft(draft, c.name, ran.input, ran.result, account);
           if (next !== draft) {
@@ -196,14 +206,15 @@ export async function* runAgent(input: RunAgentInput, account: string, deps: Age
 }
 
 /** Input is model-written: parsed and checked before any tool sees it, and an error goes back to the model. */
-async function runServerTool(name: string, args: string, chain: Chain): Promise<{ input?: unknown; result: unknown }> {
+async function runServerTool(name: string, args: string, chain: Chain, signal: AbortSignal): Promise<{ input?: unknown; result: unknown }> {
   const tool = SERVER_TOOLS[name];
   if (!tool) return { result: { error: `there is no tool named ${name}` } };
   const input = tool.input.safeParse(parseJson(args));
   if (!input.success) return { result: { error: `invalid input: ${z.prettifyError(input.error)}` } };
   try {
-    return { input: input.data, result: await tool.run(input.data as never, chain) };
+    return { input: input.data, result: await abortable(signal, () => tool.run(input.data as never, chain, signal)) };
   } catch (e) {
+    signal.throwIfAborted();
     console.error(e);
     return { result: { error: "the tool failed; try again or continue without it" } };
   }

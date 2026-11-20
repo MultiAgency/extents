@@ -83,6 +83,9 @@ const storageSchema = b.option(
   }),
 );
 
+const I64_MIN = -(2n ** 63n);
+const I64_MAX = 2n ** 63n - 1n;
+
 /** Nanoseconds since the epoch, exactly, from RFC 3339 with up to 9 fraction digits. */
 export function timestampNanos(rfc3339: string): bigint {
   const m = /^((\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d))(?:\.(\d{1,9}))?(Z|[+-](\d\d):(\d\d))$/.exec(rfc3339);
@@ -174,11 +177,14 @@ export function validateParams(p: Params): string | undefined {
     ["commit_by", p.commit_by],
   ] as const) {
     if (value === undefined) continue;
+    let nanos: bigint;
     try {
-      timestampNanos(value);
+      nanos = timestampNanos(value);
     } catch {
       return `${field} is not a real RFC 3339 date and time`;
     }
+    // the contract stores time as i64 nanoseconds: roughly 1677 to 2262
+    if (nanos < I64_MIN || nanos > I64_MAX) return `${field} is outside the time range the contract can store (1677 to 2262)`;
   }
 
   const backups = Object.entries(p.backups ?? {});

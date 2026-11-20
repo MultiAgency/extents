@@ -165,7 +165,7 @@ A contributor keeps its report, calls `ob_deliver` with the SHA-256 of its UTF-8
 publishes a FastData row:
 
 ```json
-{"deliverable":{"text":"the exact report","delivery_tx":"<base58 hash>","delivery_signer":"contributor.testnet"}}
+{"extents/v1/deliverable":{"text":"the exact report","delivery_tx":"<base58 hash>","delivery_signer":"contributor.testnet"}}
 ```
 
 The server fetches that finalized transaction and accepts a hash only from a successful receipt executed by this

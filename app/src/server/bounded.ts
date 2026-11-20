@@ -39,3 +39,20 @@ export const RUN_MS = 120_000;
 /** The caller's signal, if any, bounded by a timeout. */
 export const withTimeout = (signal: AbortSignal | undefined, ms: number): AbortSignal =>
   AbortSignal.any(signal ? [signal, AbortSignal.timeout(ms)] : [AbortSignal.timeout(ms)]);
+
+/** Stop waiting even when a dependency does not honor cancellation. Transports must also receive the signal. */
+export async function abortable<T>(signal: AbortSignal | undefined, work: () => Promise<T>): Promise<T> {
+  if (!signal) return work();
+  signal.throwIfAborted();
+  return new Promise<T>((resolve, reject) => {
+    const aborted = () => reject(signal.reason);
+    signal.addEventListener("abort", aborted, { once: true });
+    Promise.resolve()
+      .then(() => {
+        signal.throwIfAborted();
+        return work();
+      })
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", aborted));
+  });
+}

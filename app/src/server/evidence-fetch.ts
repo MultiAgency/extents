@@ -7,9 +7,8 @@ import { isIP, type LookupFunction } from "node:net";
 import { Budget } from "./budget.ts";
 
 export const MAX_EVIDENCE_BYTES = 2 * 1024 * 1024;
-// Bound admitted work separately from active sockets so a ten-source check
-// can finish rather than deterministically rejecting its ninth request.
-const requests = new Budget(10_000, 64);
+// Queue before charging admission, so a valid run never rejects its own later criteria.
+const requests = new Budget(10_000, 8);
 let active = 0;
 const waiting = new Set<() => void>();
 
@@ -86,17 +85,17 @@ export const publicLookup: LookupFunction = (hostname, options, callback) => {
 };
 
 export async function evidenceFetch(raw: string | URL | Request, init?: RequestInit): Promise<Response> {
-  const release = requests.acquire();
   const signal = init?.signal ?? AbortSignal.timeout(10_000);
+  const close = await connection(signal);
   try {
-    const close = await connection(signal);
+    const release = requests.acquire();
     try {
       return await fetchEvidence(raw, { ...init, signal });
     } finally {
-      close();
+      release();
     }
   } finally {
-    release();
+    close();
   }
 }
 

@@ -29,6 +29,8 @@ pub enum Error {
     InvalidBackups,
     #[error("this account is not the one its Params and immutable code derive")]
     NotDerived,
+    #[error("deadline and commit_by must be between 1677 and 2262 (i64 nanoseconds)")]
+    InvalidTimestamp,
     #[error("auth_caller must be the Verifier that holds the token")]
     InvalidAuthCaller,
     #[error("a backup can take a slot only after commit_by")]

@@ -1,6 +1,6 @@
 /** Checking a deliverable live, through AG-UI's own client against the app. */
 import { HttpAgent } from "@ag-ui/client";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { createApp } from "../src/server/app.ts";
 import type { CheckDeps } from "../src/server/checks.ts";
@@ -104,6 +104,38 @@ describe("/api/check", () => {
     expect(r.results.attendance).toMatchObject({ outcome: "pass", detail: "Attendees: 34" });
     expect(r.results.useful).toMatchObject({ outcome: "fail", detail: "no venue or costs" });
     expect(r.summary).toEqual({ passed: 2, failed: 1, skipped: 0, verdict: "failed" });
+  });
+
+  test("criteria share fetched evidence within a run, while later runs fetch fresh bytes", async () => {
+    const { runChecks } = await import("../src/server/precheck.ts");
+    const fetch = vi.fn(async () => new Response("New York"));
+    const spec = { ...SPEC, criteria: [SPEC.criteria[0]!, { ...SPEC.criteria[0]!, id: "same-page" }] };
+    const input = {
+      threadId: "t",
+      runId: "r",
+      messages: [],
+      tools: [],
+      context: [],
+      state: {},
+      forwardedProps: { objective: "objective.testnet", deliverable: { text: "Event page: https://example.org/" } },
+    };
+    const deps = {
+      chain: {
+        accountExists: async () => true,
+        verifierBalance: async () => 0n,
+        describeObjective: async () => ({ deployed: true, documents: { spec } }),
+      },
+      checks: { fetch: fetch as unknown as typeof globalThis.fetch },
+      delivered: async () => [],
+    };
+    for await (const _ of runChecks(input, deps)) {
+      /* consume the first run */
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+    for await (const _ of runChecks(input, deps)) {
+      /* consume a fresh run */
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   test("an objective without published terms is refused", async () => {

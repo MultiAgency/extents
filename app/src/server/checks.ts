@@ -45,9 +45,28 @@ interface Fetched {
   sha256: string;
 }
 
+type Loaded = Fetched | string | { unavailable: string };
+const evidenceCaches = new WeakMap<CheckDeps, Map<string, Promise<Loaded>>>();
+
+/** Share exact evidence bytes within one run, never between drafts and evaluations. */
+export function checksForRun(deps: CheckDeps): CheckDeps {
+  const run = { ...deps };
+  evidenceCaches.set(run, new Map());
+  return run;
+}
+
 async function load(deps: CheckDeps, raw: string): Promise<Fetched | string | { unavailable: string }> {
   const url = publicUrl(raw);
   if (!url) return `${raw} is not a public http(s) address`;
+  const cache = evidenceCaches.get(deps);
+  const previous = cache?.get(url.href);
+  if (previous) return previous;
+  const pending = fetchPage(deps, url, raw);
+  cache?.set(url.href, pending);
+  return pending;
+}
+
+async function fetchPage(deps: CheckDeps, url: URL, raw: string): Promise<Loaded> {
   try {
     const signal = withTimeout(deps.signal, TIMEOUT_MS);
     const res = await deps.fetch(url, { signal, redirect: "manual" });
@@ -80,6 +99,27 @@ export function labelled(text: string, label: string): string | undefined {
 
 const LINK = /https?:\/\/[^\s)<>\]"']+/g;
 const links = (text: string) => [...new Set(text.match(LINK) ?? [])];
+
+/** The complete value accepted by numeric_match, including grouped and scientific notation. */
+function numberValue(raw: string): number | undefined {
+  const value = raw.replace(/[, _]/g, "");
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value)) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Whole numeric tokens: 30 cannot be supported by 130, 30.5 or an identifier containing 30. */
+function sourceNumbers(text: string): Set<number> {
+  const numbers = new Set<number>();
+  const tokens = /[+-]?(?:(?:\d{1,3}(?:[,_ ]\d{3})+|\d+)(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?/g;
+  const word = /[\p{L}\p{N}_.]/u;
+  for (const token of text.matchAll(tokens)) {
+    if (word.test(text[token.index - 1] ?? "") || word.test(text[token.index + token[0].length] ?? "")) continue;
+    const n = numberValue(token[0]);
+    if (n !== undefined) numbers.add(n);
+  }
+  return numbers;
+}
 
 const MEDIA_EXT: Record<string, RegExp> = {
   image: /\.(png|jpe?g|gif|webp|avif|svg)(\?|$)/i,
@@ -125,10 +165,8 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
     case "numeric_match": {
       const raw = labelled(d.text, check.label);
       if (raw === undefined) return result(c, "fail", `no "${check.label}: <number>" line`);
-      const value = raw.replace(/[, _]/g, "");
-      const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value);
-      const n = numeric ? Number(value) : NaN;
-      if (!Number.isFinite(n)) return result(c, "fail", `"${check.label}: ${raw}" is not a number`);
+      const n = numberValue(raw);
+      if (n === undefined) return result(c, "fail", `"${check.label}: ${raw}" is not a number`);
       const inRange = (check.min === undefined || n >= check.min) && (check.max === undefined || n <= check.max);
       const bounds = [check.min !== undefined && `at least ${check.min}`, check.max !== undefined && `at most ${check.max}`]
         .filter(Boolean)
@@ -169,10 +207,15 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
           evidence,
         );
       if (check.figures) {
-        const figures = spec.criteria.flatMap((k) =>
-          k.check.kind === "numeric_match" ? [labelled(d.text, k.check.label)?.match(/-?\d[\d,]*(\.\d+)?/)?.[0]].filter(Boolean) : [],
-        ) as string[];
-        const unsupported = figures.filter((f) => !pages.some((p) => p.text.includes(f)));
+        const figures = spec.criteria.flatMap((k) => {
+          if (k.check.kind !== "numeric_match") return [];
+          const raw = labelled(d.text, k.check.label);
+          return [{ label: k.check.label, raw, value: raw === undefined ? undefined : numberValue(raw) }];
+        });
+        const numbers = pages.map((p) => sourceNumbers(p.text));
+        const unsupported = figures
+          .filter((f) => f.value === undefined || !numbers.some((page) => page.has(f.value!)))
+          .map((f) => f.raw ?? f.label);
         if (unsupported.length)
           return result(c, unavailable ? "skipped" : "fail", `not found on available cited pages: ${unsupported.join(", ")}`, evidence);
       }

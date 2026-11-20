@@ -1145,3 +1145,17 @@ fn an_early_retry_answers_not_deleted() {
     assert_eq!(contract.ob_view().no_verify().in_flight, 1);
     assert!(owed(&contract).is_empty());
 }
+
+/// Times are stored and hashed as i64 nanoseconds; one outside that range is
+/// refused by validation instead of panicking while hashing.
+#[test]
+fn times_outside_i64_nanoseconds_are_refused() {
+    let mut far = serde_json::to_value(params(&[HALF, HALF], 3600)).unwrap();
+    far["deadline"] = "2300-01-01T00:00:00Z".into();
+    let far: Params = serde_json::from_value(far).unwrap();
+    assert!(matches!(far.validate(), Err(Error::InvalidTimestamp)));
+    assert!(matches!(
+        ContractStorage::init_state(&far),
+        Err(Error::InvalidTimestamp)
+    ));
+}

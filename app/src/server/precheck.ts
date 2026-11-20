@@ -14,10 +14,11 @@ import { judgedText } from "../shared/judge.ts";
 import { buildReview, summarize, type CheckResult, type Delivered } from "../shared/review.ts";
 import { accountId, parseSpec, type Spec } from "../shared/spec.ts";
 import { deliveredBy, verifyReports } from "../shared/delivery.ts";
-import { runCheck, type CheckDeps, type Deliverable } from "./checks.ts";
+import { checksForRun, runCheck, type CheckDeps, type Deliverable } from "./checks.ts";
 import { canonicalize } from "../shared/jcs.ts";
 import { DeliveryProofError } from "./fastdata.ts";
 import type { Chain } from "./tools.ts";
+import { abortable } from "./bounded.ts";
 
 const checkRequest = z.object({
   objective: z.string(),
@@ -51,10 +52,11 @@ async function* streamChecks(spec: Spec, deliverable: Deliverable, deps: CheckRu
     yield { type: EventType.TOOL_CALL_END, toolCallId: c.id } as BaseEvent;
   }
 
+  const checks = checksForRun({ ...deps.checks, signal: deps.signal });
   const pending = new Map(
     spec.criteria.map((c) => [
       c.id,
-      runCheck(c, spec, deliverable, { ...deps.checks, signal: deps.signal }).catch((e): CheckResult => ({
+      runCheck(c, spec, deliverable, checks).catch((e): CheckResult => ({
         criterion_id: c.id,
         outcome: "skipped",
         detail: `could not check: ${e instanceof Error ? e.message : e}`,
@@ -65,7 +67,7 @@ async function* streamChecks(spec: Spec, deliverable: Deliverable, deps: CheckRu
   const results: CheckResult[] = [];
   while (pending.size) {
     deps.signal?.throwIfAborted();
-    const r = await Promise.race(pending.values());
+    const r = await abortable(deps.signal, () => Promise.race(pending.values()));
     pending.delete(r.criterion_id);
     results.push(r);
     yield { type: EventType.TOOL_CALL_RESULT, messageId: newId(), toolCallId: r.criterion_id, content: JSON.stringify(r) } as BaseEvent;
@@ -89,8 +91,8 @@ async function* run(input: RunAgentInput, invalid: string, body: () => AsyncGene
   }
 }
 
-async function published(chain: Chain, objective: string) {
-  const view = (await chain.describeObjective(objective)) as {
+async function published(chain: Chain, objective: string, signal?: AbortSignal) {
+  const view = (await abortable(signal, () => chain.describeObjective(objective, signal))) as {
     documents?: { params: Params; spec: unknown; unsupported?: string };
     state?: { delivered?: number; taken?: number };
     evaluator_dao?: Dao;
@@ -104,7 +106,7 @@ async function published(chain: Chain, objective: string) {
 export function runChecks(input: RunAgentInput, deps: CheckRunDeps): AsyncGenerator<BaseEvent> {
   return run(input, "Send an objective and a deliverable to check.", async function* () {
     const request = checkRequest.parse(input.forwardedProps);
-    const { spec } = await published(deps.chain, request.objective);
+    const { spec } = await published(deps.chain, request.objective, deps.signal);
     // Drafts aren't attested evidence and must not consume the evaluation archive.
     return summarize(
       yield* streamChecks(spec, request.deliverable, {
@@ -123,10 +125,10 @@ export function runChecks(input: RunAgentInput, deps: CheckRunDeps): AsyncGenera
 export function runEvaluation(input: RunAgentInput, deps: CheckRunDeps): AsyncGenerator<BaseEvent> {
   return run(input, "Send the objective to evaluate.", async function* () {
     const objective = accountId.parse((input.forwardedProps as { objective?: unknown } | undefined)?.objective);
-    const { params, spec, state, evaluator_dao } = await published(deps.chain, objective);
+    const { params, spec, state, evaluator_dao } = await published(deps.chain, objective, deps.signal);
     const expected = deliveredBy(params, state);
     if (!expected.length) throw new Refusal("Nobody has delivered yet.");
-    const delivered = await deps.delivered(objective, expected, deps.signal);
+    const delivered = await abortable(deps.signal, () => deps.delivered(objective, expected, deps.signal));
     try {
       verifyReports(expected, delivered);
     } catch (e) {

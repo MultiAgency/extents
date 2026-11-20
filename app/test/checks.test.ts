@@ -117,6 +117,28 @@ describe("checks", () => {
     });
   });
 
+  test.each([
+    ["3e1", "Only 3 people attended.", "fail"],
+    ["30", "There were 130 attendees.", "fail"],
+    ["30", "Attendance: 30.5", "fail"],
+    ["30", "Attendance: 3e1", "pass"],
+    ["3e1", "Attendance: 30", "pass"],
+    ["1,000", "Attendance: 1000", "pass"],
+    [".5", "Rating: 0.5", "pass"],
+  ])("source figures compare complete numbers: %s in %s", async (value, page, outcome) => {
+    const number = crit({ kind: "numeric_match", label: "Count", min: 0 }, "number");
+    const sources = crit({ kind: "sources", min: 1, figures: true });
+    const r = await runCheck(
+      sources,
+      spec(number, sources),
+      { text: `Count: ${value}\nhttps://example.org/report` },
+      {
+        fetch: (async () => new Response(page)) as unknown as typeof fetch,
+      },
+    );
+    expect(r.outcome).toBe(outcome);
+  });
+
   test("media counts only what loads as that kind", async () => {
     expect(await run({ kind: "media", kinds: ["image"], min: 2 })).toMatchObject({ outcome: "pass", detail: "2 image items load" });
     expect((await run({ kind: "media", kinds: ["image"], min: 3 })).outcome).toBe("fail");

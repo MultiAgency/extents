@@ -5,7 +5,8 @@ import { RunAgentInputSchema } from "@ag-ui/core/schemas";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { Budget } from "./budget.ts";
-import { RUN_MS, withTimeout } from "./bounded.ts";
+import { abortable, RUN_MS, withTimeout } from "./bounded.ts";
+import { RPC_READ_MS } from "./rpc.ts";
 
 import { validateParams, type Params } from "../shared/params.ts";
 import { accountId } from "../shared/spec.ts";
@@ -21,16 +22,21 @@ export interface AppDeps extends AgentDeps {
 }
 
 /** An AG-UI event stream as an SSE response. */
-function sse(events: AsyncIterable<BaseEvent>, accept: string | undefined): Response {
+function sse(run: (signal: AbortSignal) => AsyncIterable<BaseEvent>, requestSignal: AbortSignal, accept: string | undefined): Response {
   const encoder = new EventEncoder({ accept });
-  const iterator = events[Symbol.asyncIterator]();
+  const cancelled = new AbortController();
+  const signal = withTimeout(AbortSignal.any([requestSignal, cancelled.signal]), RUN_MS);
+  const iterator = run(signal)[Symbol.asyncIterator]();
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       const { value, done } = await iterator.next();
-      if (done) controller.close();
-      else controller.enqueue(new TextEncoder().encode(encoder.encodeSSE(value)));
+      if (done) {
+        cancelled.abort();
+        controller.close();
+      } else controller.enqueue(new TextEncoder().encode(encoder.encodeSSE(value)));
     },
     async cancel() {
+      cancelled.abort();
       await iterator.return?.();
     },
   });
@@ -104,8 +110,6 @@ export function createApp(deps: AppDeps): Hono {
     }
   });
 
-  const signalFor = (signal: AbortSignal) => withTimeout(signal, RUN_MS);
-
   /** One AG-UI run. The customer's account rides in `forwardedProps`; launch_objective must be advertised. */
   app.post("/api/agent", async (c) => {
     const parsed = RunAgentInputSchema.safeParse(await c.req.json());
@@ -118,7 +122,7 @@ export function createApp(deps: AppDeps): Hono {
     const spent = charge();
     if (spent) return c.json({ error: spent }, 429);
 
-    return sse(runAgent(input, account.data, deps, signalFor(c.req.raw.signal)), c.req.header("accept"));
+    return sse((signal) => runAgent(input, account.data, deps, signal), c.req.raw.signal, c.req.header("accept"));
   });
 
   // a deliverable checked against the published terms (`forwardedProps = {objective, deliverable}`), and the
@@ -132,7 +136,7 @@ export function createApp(deps: AppDeps): Hono {
       if (!parsed.success) return c.json({ error: "invalid run input" }, 400);
       const spent = charge();
       if (spent) return c.json({ error: spent }, 429);
-      return sse(runner(parsed.data, { ...deps, signal: signalFor(c.req.raw.signal) }), c.req.header("accept"));
+      return sse((signal) => runner(parsed.data, { ...deps, signal }), c.req.raw.signal, c.req.header("accept"));
     });
   }
 
@@ -155,7 +159,8 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get("/api/objective/:id", async (c) => {
     try {
-      return c.json(await deps.chain.describeObjective(c.req.param("id")));
+      const signal = withTimeout(c.req.raw.signal, RPC_READ_MS);
+      return c.json(await abortable(signal, () => deps.chain.describeObjective(c.req.param("id"), signal)));
     } catch (e) {
       console.error(e);
       return c.json({ error: "could not read the objective" }, 502);

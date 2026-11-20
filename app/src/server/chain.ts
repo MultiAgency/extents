@@ -5,22 +5,27 @@ import type { Dao } from "../shared/attest.ts";
 import { NETWORK, objectiveCodeHash, TOKEN, VERIFIER } from "../shared/config.ts";
 import { readLaunchDocuments } from "./fastdata.ts";
 import { initState, objectiveAccountId, validateParams, type Params } from "../shared/params.ts";
+import { query, RpcReadError, view } from "./rpc.ts";
 
-export const reader = new Near({ network: NETWORK });
-
-export async function accountExists(accountId: string): Promise<boolean> {
-  return reader.accountExists(accountId);
+export async function accountExists(accountId: string, signal?: AbortSignal): Promise<boolean> {
+  try {
+    await query({ request_type: "view_account", account_id: accountId }, signal);
+    return true;
+  } catch (e) {
+    if (e instanceof RpcReadError && e.detail.cause?.name === "UNKNOWN_ACCOUNT") return false;
+    throw e;
+  }
 }
 
 /** The objective's on-chain state, or undefined if it is not deployed (or already deleted). */
-export async function viewObjective(accountId: string): Promise<Record<string, unknown> | undefined> {
-  if (!(await accountExists(accountId))) return undefined;
-  return reader.view(accountId, "ob_view", {}, { finality: "final" });
+export async function viewObjective(accountId: string, signal?: AbortSignal): Promise<Record<string, unknown> | undefined> {
+  if (!(await accountExists(accountId, signal))) return undefined;
+  return view(accountId, "ob_view", signal);
 }
 
 /** Balance of the objective's token on the Verifier, in its smallest unit. */
-export async function verifierBalance(accountId: string): Promise<bigint> {
-  const balance = await reader.view<string>(VERIFIER, "mt_balance_of", { account_id: accountId, token_id: TOKEN.id });
+export async function verifierBalance(accountId: string, signal?: AbortSignal): Promise<bigint> {
+  const balance = await view<string>(VERIFIER, "mt_balance_of", signal, { account_id: accountId, token_id: TOKEN.id });
   return BigInt(balance ?? "0");
 }
 
@@ -33,9 +38,15 @@ interface Policy {
  * The account as a Sputnik DAO, or undefined if it is not one: its proposal
  * bond, and who may propose a function call (`"anyone"` for an Everyone role).
  */
-export async function sputnikDao(accountId: string): Promise<Dao | undefined> {
+export async function sputnikDao(accountId: string, signal?: AbortSignal): Promise<Dao | undefined> {
   // no contract, or not a Sputnik DAO: either way, not a DAO evaluator
-  const policy = await reader.view<Policy>(accountId, "get_policy").catch(() => undefined);
+  const policy = await view<Policy>(accountId, "get_policy", signal).catch((e) => {
+    signal?.throwIfAborted();
+    // Network failures must not turn an actual DAO into a direct-signing evaluator.
+    if (e instanceof RpcReadError && ["UNKNOWN_ACCOUNT", "NO_CONTRACT_CODE"].includes(e.detail.cause?.name ?? "")) return undefined;
+    if (e instanceof Error && /MethodNotFound|MethodResolveError|does not exist while viewing/.test(e.message)) return undefined;
+    throw e;
+  });
   if (!policy?.roles) return undefined;
   const grantsCalls = (permissions: string[]) =>
     permissions.some((p) => ["*:*", "call:*", "*:AddProposal", "call:AddProposal"].includes(p));
@@ -47,14 +58,14 @@ export async function sputnikDao(accountId: string): Promise<Dao | undefined> {
 }
 
 /** An objective as the app shows it: on-chain state, its verified documents, and its evaluator if a DAO. */
-export async function describeObjective(accountId: string) {
+export async function describeObjective(accountId: string, signal?: AbortSignal) {
   accountSchema.parse(accountId);
   const [state, documents, balance] = await Promise.all([
-    viewObjective(accountId),
-    readLaunchDocuments(accountId, objectiveCodeHash()),
-    verifierBalance(accountId),
+    viewObjective(accountId, signal),
+    readLaunchDocuments(accountId, objectiveCodeHash(), signal),
+    verifierBalance(accountId, signal),
   ]);
-  const evaluator_dao = documents ? await sputnikDao(documents.params.evaluator) : undefined;
+  const evaluator_dao = documents ? await sputnikDao(documents.params.evaluator, signal) : undefined;
   return {
     deployed: state !== undefined,
     state,

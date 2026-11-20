@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { createApp } from "../src/server/app.ts";
+import { vi } from "vitest";
 
 function app() {
   return createApp({
@@ -37,6 +38,71 @@ test("reads don't spend the hourly allowance", async () => {
     expect(res.status).toBe(200);
     await res.text();
   }
+});
+
+test("disconnecting stalled reads cancels their chain work and frees all response slots", async () => {
+  const signals: AbortSignal[] = [];
+  const describe = vi.fn((_id: string, signal?: AbortSignal) => {
+    signals.push(signal!);
+    return new Promise<{ deployed: boolean }>(() => {});
+  });
+  const api = createApp({
+    model: { name: "unused", stream: () => (async function* () {})() },
+    chain: { accountExists: async () => false, verifierBalance: async () => 0n, describeObjective: describe },
+    deploy: async () => ({ accountId: "unused.testnet" }),
+    checks: { fetch },
+    delivered: async () => [],
+  });
+  const controllers = Array.from({ length: 4 }, () => new AbortController());
+  const pending = controllers.map((c) => api.request(new Request("http://test/api/objective/objective.testnet", { signal: c.signal })));
+  await vi.waitFor(() => expect(describe).toHaveBeenCalledTimes(4));
+  expect((await api.request("/api/objective/objective.testnet")).status).toBe(429);
+  controllers.forEach((c) => c.abort());
+  for (const response of await Promise.all(pending)) {
+    expect(response.status).toBe(502);
+    await response.text();
+  }
+  expect(signals.every((s) => s.aborted)).toBe(true);
+  describe.mockResolvedValue({ deployed: false });
+  const recovered = await api.request("/api/objective/objective.testnet");
+  expect(recovered.status).toBe(200);
+  await recovered.text();
+});
+
+test("cancelling a check stream stops a hung chain read and releases its slot", async () => {
+  let chainSignal: AbortSignal | undefined;
+  const api = createApp({
+    model: { name: "unused", stream: () => (async function* () {})() },
+    chain: {
+      accountExists: async () => false,
+      verifierBalance: async () => 0n,
+      describeObjective: async (_id, signal) => {
+        chainSignal = signal;
+        return new Promise(() => {});
+      },
+    },
+    deploy: async () => ({ accountId: "unused.testnet" }),
+    checks: { fetch },
+    delivered: async () => [],
+  });
+  const response = await api.request("/api/check", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      threadId: "t",
+      runId: "r",
+      messages: [],
+      tools: [],
+      context: [],
+      state: {},
+      forwardedProps: { objective: "objective.testnet", deliverable: { text: "report" } },
+    }),
+  });
+  const reader = response.body!.getReader();
+  await reader.read();
+  await vi.waitFor(() => expect(chainSignal).toBeDefined());
+  await reader.cancel();
+  expect(chainSignal?.aborted).toBe(true);
 });
 
 test("costly work shares one process-wide hourly ceiling, whoever claims to call", async () => {

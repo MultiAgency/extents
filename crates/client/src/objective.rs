@@ -180,6 +180,8 @@ impl Objective {
         )
     }
 
+    /// Anyone may send it, so a DAO never needs to propose it: its gas would
+    /// not fit inside the vote that executes a proposal.
     pub fn close(&self) -> Call {
         self.own("ob_close", json!({ "params": self.params }), gas::CLOSE)
     }

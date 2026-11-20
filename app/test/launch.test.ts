@@ -161,3 +161,24 @@ describe("auth_caller", () => {
     expect(validateParams(p)).toBeUndefined();
   });
 });
+
+describe("deadline range", () => {
+  const p = {
+    sponsor: "customer.testnet",
+    token: "nep245:verifier.tidepool-sandbox.testnet:nep141:usdc.tidepool-sandbox.testnet",
+    evaluator: "agency.testnet",
+    contributors: { "organizer.testnet": 1_000_000 },
+    spec_hash: "00".repeat(32),
+    salt: "11".repeat(32),
+  } as never as Params;
+
+  // i64 nanoseconds end at 2262-04-11T23:47:16.854775807Z and start at 1677-09-21T00:12:43.145224192Z
+  test.each(["2262-04-11T23:47:17Z", "2300-01-01T00:00:00Z", "1677-09-21T00:12:43Z", "1600-01-01T00:00:00Z"])("refuses %s", (deadline) =>
+    expect(validateParams({ ...p, deadline })).toMatch(/outside the time range/),
+  );
+
+  test.each(["2262-04-11T23:47:16Z", "2262-04-11T23:47:16.854775807Z", "1677-09-21T00:12:43.145224192Z"])(
+    "accepts the edge %s",
+    (deadline) => expect(validateParams({ ...p, deadline })).toBeUndefined(),
+  );
+});

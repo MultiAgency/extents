@@ -1,4 +1,4 @@
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import vectors from "../../contracts/objective/tests/vectors/params.json" with { type: "json" };
 import { deployObjective } from "../src/server/chain.ts";
 import { objectiveAccountId, type Params } from "../src/shared/params.ts";
@@ -24,8 +24,21 @@ vi.mock("near-kit", async (original) => ({
   },
 }));
 
+beforeEach(() => {
+  vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+    const { params } = JSON.parse(init.body as string);
+    expect(params.request_type).toBe("view_account");
+    return Response.json(
+      (await calls.exists(params.account_id))
+        ? { result: {} }
+        : { error: { message: "Account missing", cause: { name: "UNKNOWN_ACCOUNT" } } },
+    );
+  });
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 

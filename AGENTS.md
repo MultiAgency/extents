@@ -20,7 +20,8 @@ cargo near build non-reproducible-wasm --locked --features=contract --abi-featur
 
 From `app`, run `pnpm test`, `pnpm typecheck`, and `pnpm exec playwright test`.
 Browser tests start local Bun and mock-model servers. Live sandbox tests need Docker:
-`cargo test -p extents-sandbox -- --ignored --test-threads=1`.
+`cargo nextest run -p extents-sandbox --run-ignored only` (`.config/nextest.toml` runs three
+at a time and stops a hung test after 20 minutes).
 Set `EXTENTS_OBJECTIVE_WASM` to test a particular artifact. Public testnet e2e commands send
 transactions and spend testnet balances; run them only when requested.
 
@@ -59,7 +60,7 @@ See README.md, docs/app.md and docs/documents.md for the current behavior.
 
 # Resources
 
-References this code depends on. Others for local work are in `.agents/resources.md` (not tracked).
+References for working on this code.
 
 ## NEAR Intents
 
@@ -82,6 +83,23 @@ https://www.usetidepool.tech/openapi.json
 https://www.usetidepool.tech/AGENTS.md
 https://www.usetidepool.tech/llms.txt
 https://www.usetidepool.tech/llms-full.txt
+
+### NEAR Intents Agent API
+
+Demo:
+https://github.com/NEAR-Intents-Agent-API/demo
+
+Examples:
+https://github.com/NEAR-Intents-Agent-API/examples
+
+Skills:
+https://github.com/NEAR-Intents-Agent-API/skills
+
+Typescript SDK:
+https://github.com/NEAR-Intents-Agent-API/sdk-typescript
+
+Docs:
+https://docs.agentsonintents.com
 
 ## NEAR Protocol
 
@@ -130,7 +148,6 @@ https://github.com/near/near-sandbox-rs
 https://github.com/r-near/zorsh
 https://github.com/r-near/zorsh-gen-rs
 https://github.com/r-near/zorsh-schema-gen
-https://github.com/r-near/near-abi-ts
 
 ### FastNear
 
@@ -150,6 +167,19 @@ https://github.com/r-near/near-kit-rs
 https://kit.near.tools/llms.txt
 https://kit.near.tools/llms-full.txt
 
+## OutLayer
+
+Source Code:
+https://github.com/out-layer/outlayer
+
+Docs:
+https://app.outlayer.ai/llms.txt
+https://app.outlayer.ai/llms-full.txt
+
+Skills:
+https://skills.outlayer.ai/outlayer/SKILL.md
+https://github.com/out-layer/skills
+
 ## NEAR AI
 
 ### Cloud
@@ -157,13 +187,45 @@ https://kit.near.tools/llms-full.txt
 https://docs.near.ai/llms.txt
 https://docs.near.ai/llms-full.txt
 
-## Sputnik DAO and Trezu
+### Agent Market
+
+https://market.near.ai
+
+Skill:
+https://docs.market.near.ai/skill.md
+
+Docs:
+https://docs.market.near.ai/llms.txt
+https://docs.market.near.ai/llms-full.txt
+
+OpenAPI Spec:
+https://market.near.ai/openapi.json
+
+## MultiAgency Platform
+
+Source Code:
+https://github.com/multiagency/platform
+
+Demos:
+https://github.com/multiagency/demo
+https://github.com/multiagency/treasury
+
+## Agencies
 
 Sputnik DAO Contract:
 https://github.com/near-daos/sputnik-dao-contract/tree/main/sputnikdao2
 
 Sputnik DAO Factory:
 https://github.com/near-daos/sputnik-dao-contract/tree/main/sputnikdao-factory2
+
+Sputnik DAO Indexer (used by Trezu):
+https://github.com/near-daos/sputnik-dao-caching-api-server
+
+Trezu GitHub:
+https://github.com/near-devhub/trezu
+
+Trezu Bulk Payment Contract:
+https://github.com/near-devhub/trezu/tree/main/contracts/bulk-payment
 
 Trezu Custom Proposal Templates:
 https://github.com/near-devhub/trezu/blob/main/docs/CUSTOM_PROPOSAL_TEMPLATES.md

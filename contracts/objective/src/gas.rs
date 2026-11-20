@@ -12,7 +12,8 @@ use crate::Params;
 pub const MT_TRANSFER: Gas = Gas::from_tgas(15);
 /// The callback that records which payouts of a batch succeeded.
 pub const RESOLVE_TRANSFERS: Gas = Gas::from_tgas(10);
-/// Reading the objective's own Verifier balance before deletion.
+/// Reading the objective's own Verifier balance before deletion, at least.
+/// It also shares any gas the caller attaches beyond what is reserved.
 pub const MT_BALANCE_OF: Gas = Gas::from_tgas(5);
 /// Enough to act on that reading and, at zero, delete the account.
 pub const RESOLVE_BALANCE: Gas = Gas::from_tgas(35);

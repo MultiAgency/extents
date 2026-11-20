@@ -196,7 +196,8 @@ impl State {
         let token = params.nep245_token()?;
         let read = ext_mt_core::ext(token.contract_id.clone())
             .with_static_gas(gas::MT_BALANCE_OF)
-            .with_unused_gas_weight(0)
+            // like the payouts, it can be given more gas by its caller
+            .with_unused_gas_weight(1)
             .mt_balance_of(env::current_account_id(), token.mt_token_id.clone());
         let read = match after {
             Some(transfers) => transfers.then(read),

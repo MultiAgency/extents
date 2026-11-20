@@ -152,6 +152,9 @@ Deletion waits for the last moment to attest so that redeploying the same
 - **Honest judging.** A bribed or captured evaluator, DAO majority included,
   is recorded like any other, and the contract sees no payment made off chain.
 - **Privacy.** Params, specs, reports and reviews are public.
+- **Independence from the Verifier's operators.** Its `DAO` and
+  `UnrestrictedWithdrawer` roles can force-transfer any balance on it,
+  an objective's included, and can lock accounts.
 - **Safety.** No independent audit yet. Use testnet funds only.
 
 **Known limits:**
@@ -169,13 +172,13 @@ Deletion waits for the last moment to attest so that redeploying the same
   account no code controls, since the Verifier does not check that an account
   exists. Nobody else can claim that NEP-616 id, and nobody can move the
   balance.
-- **Payout gas has a ceiling.** Each payout is reserved 15 Tgas and shares
-  any gas the caller attaches beyond what the call reserves. A retry sends
-  everything owed in one batch, so each payout gets at most roughly (300 Tgas
-  minus the batch callback and the call's own execution) divided by the
-  number of payouts owed, about 21–25 Tgas with eleven. Should a Verifier
-  upgrade make `mt_transfer` cost more than that, those payouts could not be
-  sent.
+- **Payout gas has a ceiling.** Each payout is reserved 15 Tgas, and the
+  balance read before deletion 5 Tgas; both share any gas the caller attaches
+  beyond what the call reserves. A retry sends everything owed in one batch,
+  so each payout gets at most roughly (300 Tgas minus the batch callback and
+  the call's own execution) divided by the number of payouts owed, about
+  21–25 Tgas with eleven. Should a Verifier upgrade make `mt_transfer` cost
+  more than that, those payouts could not be sent.
 - **Deletion can be blocked.** An objective deletes itself only at a zero
   balance, so anyone can keep one alive by sending it a unit. Deletion protects
   no funds or rights; it only clears state.
@@ -192,6 +195,9 @@ the sponsor and the evaluator:
 - **A DAO acts by proposal**, which must pass within the DAO's proposal
   period and before the last moment to attest. With an acceptance window
   shorter than that period, silence decides instead of the vote.
+- **Backups** are part of the terms. A `commit_by` already past at launch
+  lets a backup take an empty slot at once, and the sponsor may name itself a
+  backup.
 - **Signed intents:** a refused `auth_call` still uses up the intent, since
   the Verifier doesn't wait for the callee, so a new one must be signed.
   Removing a key voids every outstanding intent it signed, including
@@ -418,7 +424,7 @@ local) against that exact file:
 
 ```sh
 (cd contracts/objective && cargo near build non-reproducible-wasm --locked --features=contract --abi-features=abi,contract)
-EXTENTS_OBJECTIVE_WASM="$PWD/target/near/extents_objective/extents_objective.wasm" cargo test -p extents-sandbox -- --ignored
+EXTENTS_OBJECTIVE_WASM="$PWD/target/near/extents_objective/extents_objective.wasm" cargo nextest run -p extents-sandbox --run-ignored only
 ```
 
 A build to publish comes from `cargo near build reproducible-wasm`, in the

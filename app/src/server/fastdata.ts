@@ -13,6 +13,7 @@ import { accountId, parseSpec, specHash, type Spec } from "../shared/spec.ts";
 import { jcsHash } from "../shared/jcs.ts";
 import { specLimitProblem } from "../shared/schema.ts";
 import { readCapped, withTimeout } from "./bounded.ts";
+import { z } from "zod";
 
 /** Keys the sponsor writes at launch. */
 export interface LaunchDocuments {
@@ -26,12 +27,11 @@ export interface LaunchDocuments {
   unsupported?: string;
 }
 
-interface Row {
-  predecessor_id: string;
-  key: string;
-  value: unknown;
-  block_height: number;
-}
+const pageSchema = z.object({
+  entries: z.array(z.object({ predecessor_id: accountId, key: z.string(), value: z.unknown() })),
+  page_token: z.string().optional(),
+});
+type Row = z.infer<typeof pageSchema>["entries"][number];
 
 export class DeliveryProofError extends Error {}
 
@@ -41,21 +41,22 @@ const MAX_ROWS_BYTES = 16 * 1024 * 1024;
 /** A finalized transaction with its receipts. */
 const MAX_TX_BYTES = 4 * 1024 * 1024;
 
-async function latest(objective: string, signal?: AbortSignal): Promise<Row[]> {
+/** Exact server-side filters keep unrelated keys and writers out of the read budget. */
+async function* latest(objective: string, query: { key: string; predecessor?: string }, signal?: AbortSignal): AsyncGenerator<Row[]> {
   const deadline = withTimeout(signal, 15_000);
-  const rows: Row[] = [];
+  let rows = 0;
   let page_token: string | undefined;
   const seen = new Set<string>();
   let total = 0;
   do {
-    if (rows.length >= 2000) throw new Error("Too many published document rows");
-    const res = await fetch(`${FASTDATA_URL}/v0/latest/${objective}`, {
+    if (rows >= 2000) throw new Error("Too many published document rows");
+    const res = await fetch(`${FASTDATA_URL}/v0/latest/${objective}${query.predecessor ? `/${query.predecessor}` : ""}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         ...(process.env.FASTNEAR_API_KEY ? { authorization: `Bearer ${process.env.FASTNEAR_API_KEY}` } : {}),
       },
-      body: JSON.stringify({ limit: 200, ...(page_token ? { page_token } : {}) }),
+      body: JSON.stringify({ key: query.key, limit: 200, ...(page_token ? { page_token } : {}) }),
       cache: "no-store",
       signal: deadline,
     });
@@ -63,38 +64,79 @@ async function latest(objective: string, signal?: AbortSignal): Promise<Row[]> {
     const bytes = await readCapped(res, Math.min(MAX_PAGE_BYTES, MAX_ROWS_BYTES - total));
     if (!bytes) throw new Error("Published documents exceed the size this reader accepts");
     total += bytes.byteLength;
-    const page = JSON.parse(new TextDecoder().decode(bytes)) as { entries: Row[]; page_token?: string };
-    rows.push(...page.entries);
+    const page = pageSchema.parse(JSON.parse(new TextDecoder().decode(bytes)));
+    rows += page.entries.length;
+    // Check the response too: a bad indexer response cannot bypass writer or key constraints.
+    yield page.entries.filter((r) => r.key === query.key && (!query.predecessor || r.predecessor_id === query.predecessor));
     page_token = page.page_token;
     if (page_token && (seen.has(page_token) || seen.size >= 10)) throw new Error("Invalid or excessive document pagination");
     if (page_token) seen.add(page_token);
   } while (page_token);
-  return rows;
 }
+
+/** Only hash-verified immutable terms are cached, bounded by bytes and entry count. */
+export function launchDocumentReader() {
+  const cache = new Map<string, { documents: LaunchDocuments; size: number }>();
+  const limit = 16 * 1024 * 1024;
+  let used = 0;
+  return async (objective: string, codeHash: string, signal?: AbortSignal): Promise<LaunchDocuments | undefined> => {
+    signal?.throwIfAborted();
+    const key = `${codeHash}:${objective}`;
+    const saved = cache.get(key);
+    if (saved) {
+      cache.delete(key);
+      cache.set(key, saved);
+      return saved.documents;
+    }
+    const documents = await findLaunchDocuments(objective, codeHash, signal);
+    if (documents) {
+      const size = new TextEncoder().encode(JSON.stringify(documents)).byteLength;
+      while (cache.size && (used + size > limit || cache.size >= 256)) {
+        const oldest = cache.keys().next().value!;
+        used -= cache.get(oldest)!.size;
+        cache.delete(oldest);
+      }
+      if (size <= limit) {
+        // A concurrent read may already have cached the same immutable documents.
+        used -= cache.get(key)?.size ?? 0;
+        cache.set(key, { documents, size });
+        used += size;
+      }
+    }
+    return documents;
+  };
+}
+
+export const readLaunchDocuments = launchDocumentReader();
 
 /**
  * The launch documents of an objective, accepted only if `params` derives
  * the objective's own address (so it is exactly what was deployed) and the
  * spec matches `params.spec_hash`. The writer is then irrelevant.
  */
-export async function readLaunchDocuments(objective: string, codeHash: string): Promise<LaunchDocuments | undefined> {
-  const rows = await latest(objective);
-  for (const row of rows.filter((r) => r.key === DOCUMENT_KEYS.params)) {
-    const params = row.value as Params;
-    try {
-      if (objectiveAccountId(params, codeHash) !== objective) continue;
-    } catch {
-      continue;
-    }
-    for (const row of rows.filter((r) => r.key === DOCUMENT_KEYS.spec && r.predecessor_id === params.sponsor)) {
-      // the app's limits come before parsing; the commitment is checked on the canonical bytes, which needs no compile
-      const unsupported = specLimitProblem(row.value);
-      if (unsupported) {
-        if (safeHash(row.value) === params.spec_hash) return { params, spec: row.value as Spec, unsupported };
+async function findLaunchDocuments(objective: string, codeHash: string, signal?: AbortSignal): Promise<LaunchDocuments | undefined> {
+  for await (const rows of latest(objective, { key: DOCUMENT_KEYS.params }, signal)) {
+    for (const row of rows) {
+      const params = row.value as Params;
+      try {
+        if (objectiveAccountId(params, codeHash) !== objective) continue;
+      } catch {
         continue;
       }
-      const spec = safeSpec(row.value);
-      if (spec && specHash(spec) === params.spec_hash) return { params, spec };
+      for await (const specs of latest(objective, { key: DOCUMENT_KEYS.spec, predecessor: params.sponsor }, signal)) {
+        for (const row of specs) {
+          // Limits precede parsing; checking canonical bytes needs no schema compilation.
+          const unsupported = specLimitProblem(row.value);
+          if (unsupported) {
+            if (safeHash(row.value) === params.spec_hash) return { params, spec: row.value as Spec, unsupported };
+            continue;
+          }
+          const spec = safeSpec(row.value);
+          if (spec && specHash(spec) === params.spec_hash) return { params, spec };
+        }
+      }
+      // Every valid Params derives the same sponsor and spec hash for this address.
+      return undefined;
     }
   }
   return undefined;
@@ -123,13 +165,16 @@ function safeSpec(value: unknown): Spec | undefined {
  * Latest replacement text cannot override that commitment.
  */
 export async function readDeliverables(objective: string, contributors: string[], signal?: AbortSignal): Promise<Delivered[]> {
-  const rows = (await latest(objective, signal)).filter(
-    (r) => r.key === DOCUMENT_KEYS.deliverable && contributors.includes(r.predecessor_id),
-  );
   return Promise.all(
     contributors.map(async (contributor) => {
-      const value = rows.find((r) => r.predecessor_id === contributor)?.value as
-        { text?: unknown; delivery_tx?: unknown; delivery_signer?: unknown } | undefined;
+      let published: Row | undefined;
+      for await (const rows of latest(objective, { key: DOCUMENT_KEYS.deliverable, predecessor: contributor }, signal)) {
+        if (rows.length) {
+          published = rows[0];
+          break;
+        }
+      }
+      const value = published?.value as { text?: unknown; delivery_tx?: unknown; delivery_signer?: unknown } | undefined;
       if (
         typeof value?.text !== "string" ||
         value.text.length > 200_000 ||

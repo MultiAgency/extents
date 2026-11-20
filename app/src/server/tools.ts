@@ -12,10 +12,11 @@ import { accountId, spec, specHash, validateAppSpec } from "../shared/spec.ts";
 
 /** What the tools read from the chain; injected so tests run without one. */
 export interface Chain {
-  accountExists(accountId: string): Promise<boolean>;
-  verifierBalance(accountId: string): Promise<bigint>;
+  accountExists(accountId: string, signal?: AbortSignal): Promise<boolean>;
+  verifierBalance(accountId: string, signal?: AbortSignal): Promise<bigint>;
   describeObjective(
     accountId: string,
+    signal?: AbortSignal,
   ): Promise<{ deployed: boolean; state?: { funded?: string; committed?: number; delivered?: number } } & Record<string, unknown>>;
 }
 
@@ -24,7 +25,7 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export interface ServerTool {
   description: string;
   input: z.ZodType;
-  run(input: never, chain: Chain): Promise<unknown>;
+  run(input: never, chain: Chain, signal?: AbortSignal): Promise<unknown>;
 }
 
 export const SERVER_TOOLS: Record<string, ServerTool> = {
@@ -44,15 +45,17 @@ export const SERVER_TOOLS: Record<string, ServerTool> = {
   check_accounts: {
     description: "Check that NEAR testnet accounts exist, before naming them as contributors or evaluator.",
     input: z.object({ accounts: z.array(z.string()).min(1).max(12) }),
-    run: async ({ accounts }: { accounts: string[] }, chain) =>
+    run: async ({ accounts }: { accounts: string[] }, chain, signal) =>
       Object.fromEntries(
-        await Promise.all(accounts.map(async (a) => [a, accountId.safeParse(a).success && (await chain.accountExists(a))])),
+        await Promise.all(accounts.map(async (a) => [a, accountId.safeParse(a).success && (await chain.accountExists(a, signal))])),
       ),
   },
   verifier_balance: {
     description: `An account's ${TOKEN.symbol} on the Verifier, e.g. what the customer has available to fund an objective.`,
     input: z.object({ account: accountId }),
-    run: async ({ account }: { account: string }, chain) => ({ [TOKEN.symbol]: formatUnits(await chain.verifierBalance(account)) }),
+    run: async ({ account }: { account: string }, chain, signal) => ({
+      [TOKEN.symbol]: formatUnits(await chain.verifierBalance(account, signal)),
+    }),
   },
   update_draft: {
     description:
@@ -63,6 +66,6 @@ export const SERVER_TOOLS: Record<string, ServerTool> = {
   view_objective: {
     description: "The current state of a launched objective: its terms, funding, commitments, deliveries and outcome.",
     input: z.object({ objective: accountId }),
-    run: async ({ objective }: { objective: string }, chain) => chain.describeObjective(objective),
+    run: async ({ objective }: { objective: string }, chain, signal) => chain.describeObjective(objective, signal),
   },
 };

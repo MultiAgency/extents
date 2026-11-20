@@ -22,14 +22,15 @@ but this app accepts text reports and refuses file criteria when launching an ob
 Publication calls `__fastdata_kv` on the objective. That method does not exist, so its receipt
 fails intentionally; FastData indexes the call anyway. Publication alone proves no contract action.
 
-The server reads `params` and `spec`, derives the objective account from Params and the configured
+Documents use the keys `extents/v1/params`, `extents/v1/spec`, `extents/v1/deliverable` and
+`extents/v1/review`. The server reads the params and spec rows, derives the objective account from Params and the configured
 code hash, and requires the derived address and spec hash to match. The spec row must be written
 by the sponsor. Unsupported schema sizes are reported before compilation.
 
 After a successful finalized `ob_deliver`, the holder publishes:
 
 ```json
-{"deliverable":{"text":"exact report","delivery_tx":"<transaction hash>","delivery_signer":"<transaction signer>"}}
+{"extents/v1/deliverable":{"text":"exact report","delivery_tx":"<transaction hash>","delivery_signer":"<transaction signer>"}}
 ```
 
 The reader verifies the finalized transaction, a successful receipt executed by this objective,

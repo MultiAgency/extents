@@ -195,6 +195,14 @@ impl Params {
     }
 
     pub fn validate(&self) -> Result<()> {
+        // both are stored, and hashed, as i64 nanoseconds
+        if [Some(self.deadline), self.commit_by]
+            .into_iter()
+            .flatten()
+            .any(|t| i64::try_from(t.as_nanos()).is_err())
+        {
+            return Err(Error::InvalidTimestamp);
+        }
         let token = self.nep245_token()?;
         // `on_auth` trusts the signer its caller names, so only the Verifier,
         // which checks signatures, may be that caller.

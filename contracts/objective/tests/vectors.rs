@@ -229,6 +229,10 @@ fn rejected_params() {
             "params-foreign-auth-caller",
             Invalid(Error::InvalidAuthCaller),
         ),
+        (
+            "params-deadline-past-2262",
+            Invalid(Error::InvalidTimestamp),
+        ),
     ];
 
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/vectors/rejected");
