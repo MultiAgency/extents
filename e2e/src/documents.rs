@@ -34,6 +34,7 @@ pub fn spec() -> Spec {
                 },
             },
         ],
+        max_report_bytes: None,
         evaluator_build: None,
     }
 }
@@ -79,6 +80,7 @@ pub fn review(objective: &str, params: &Params, verdict: Verdict) -> Result<Revi
         objective: objective.parse()?,
         spec_hash: spec.hash()?,
         deliverables,
+        missing: Vec::new(),
         results,
         llm_calls: Vec::new(),
         verdict: match verdict {

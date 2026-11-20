@@ -1,6 +1,7 @@
 {
   "statement": "Organize a NEAR builders meetup in New York City for at least 30 attendees, with a public event page and a short write-up afterwards. Caf\u00e9 or office venue. \ud800",
   "v": 1,
+  "max_report_bytes": 20000,
   "criteria": [
     {
       "id": "page",

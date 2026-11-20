@@ -133,6 +133,10 @@ const PASSED: CheckResult[] = [
     evidence: [{ url: "https://lu.ma/nyc", sha256: "ab".repeat(32) }],
   },
 ];
+const VENUE_REPORT = "Venue: Pier 17, New York";
+/** The slots, in contributor order. */
+const SLOTS = ["organizer.testnet", "venue.testnet"];
+/** Both slots delivered on chain, each by its own transaction, as `achieved` requires. */
 const DELIVERED = [
   {
     contributor: "organizer.testnet",
@@ -140,6 +144,13 @@ const DELIVERED = [
     delivery_hash: reportHash(REPORT),
     delivery_tx: "DELIVERYTX",
     delivery_signer: "organizer.testnet",
+  },
+  {
+    contributor: "venue.testnet",
+    text: VENUE_REPORT,
+    delivery_hash: reportHash(VENUE_REPORT),
+    delivery_tx: "DELIVERYTX-VENUE",
+    delivery_signer: "venue.testnet",
   },
 ];
 const REVIEW = buildReview(ADDRESS, SPEC as never, DELIVERED, PASSED)!;
@@ -169,9 +180,11 @@ function checkBody(results: CheckResult[], result: unknown): string {
 }
 
 /** The evaluation as the server streams it, ending with these results' review (if any). */
-async function evaluation(page: Page, results: CheckResult[]) {
-  await page.route("**/__tx?**", (r) =>
-    r.fulfill({
+async function evaluation(page: Page, results: CheckResult[], delivered = DELIVERED) {
+  // each delivery transaction logs its own contributor's report hash
+  await page.route("**/__tx?**", (r) => {
+    const d = delivered.find((x) => x.delivery_tx === new URL(r.request().url()).searchParams.get("hash")) ?? delivered[0]!;
+    return r.fulfill({
       json: {
         receipts_outcome: [
           {
@@ -182,16 +195,18 @@ async function evaluation(page: Page, results: CheckResult[]) {
                 `EVENT_JSON:${JSON.stringify({
                   standard: "extents-objective",
                   event: "delivered",
-                  data: { contributor: DELIVERED[0]!.contributor, hash: reportHash(DELIVERED[0]!.text) },
+                  data: { contributor: d.contributor, hash: reportHash(d.text) },
                 })}`,
               ],
             },
           },
         ],
       },
-    }),
-  );
-  const review = buildReview(ADDRESS, SPEC as never, DELIVERED, results);
+    });
+  });
+  // as the server does: every slot without a report is missing, and fails the review
+  const missing = SLOTS.filter((s) => !delivered.some((d) => d.contributor === s));
+  const review = buildReview(ADDRESS, SPEC as never, delivered, results, missing);
   const summary = {
     passed: results.filter((r) => r.outcome === "pass").length,
     failed: results.filter((r) => r.outcome === "fail").length,
@@ -201,7 +216,7 @@ async function evaluation(page: Page, results: CheckResult[]) {
   await page.route("**/api/evaluate", (r) => {
     return r.fulfill({
       headers: { "content-type": "text/event-stream" },
-      body: checkBody(results, { summary, delivered: DELIVERED, ...(review ? { review } : {}) }),
+      body: checkBody(results, { summary, delivered, ...(missing.length ? { missing } : {}), ...(review ? { review } : {}) }),
     });
   });
 }
@@ -271,7 +286,7 @@ test("a check finishing after the report was edited remains stale", async ({ pag
 
 test("reevaluation retains proposal status for the same review", async ({ page }) => {
   const chain = await setup(page, { txs: [], published: true, funded: true }, "member.testnet");
-  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+  await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
   await evaluation(page, PASSED);
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -294,7 +309,7 @@ for (const [change, results] of [
 ] as const) {
   test(`proposal status follows the exact review: ${change}`, async ({ page }) => {
     const chain = await setup(page, { txs: [], published: true, funded: true }, "member.testnet");
-    await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+    await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
     await evaluation(page, PASSED);
     await page.goto(`/o/${ADDRESS}`);
     await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -325,7 +340,7 @@ test("a hashless filing override belongs only to its review", async ({ page }) =
     { txs: [], published: true, funded: true, uncertain: "add_proposal", proposalsHidden: true },
     "member.testnet",
   );
-  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+  await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
   await evaluation(page, PASSED);
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -350,7 +365,7 @@ test("a hashless filing override belongs only to its review", async ({ page }) =
 
 test("a late filing completion stays attached to the review that was signed", async ({ page }) => {
   const chain = await setup(page, { txs: [], published: true, funded: true }, "member.testnet");
-  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+  await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
   await evaluation(page, PASSED);
   let requested = false;
   let release!: () => void;
@@ -391,7 +406,7 @@ test("unencodable attestation terms are reported without crashing the evaluator"
   // Unknown Params fields do not affect address derivation, but are still returned by the document reader.
   await objective(
     page,
-    { committed: 3, delivered: 1 },
+    { committed: 3, delivered: 3 },
     {
       documents: { params: { ...PARAMS, padding: "x".repeat(1_000_000) }, spec: SPEC },
       evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] },
@@ -411,7 +426,7 @@ test("unencodable attestation terms are reported without crashing the evaluator"
 
 test("the evaluator checks the deliveries, publishes the review and attests its hash", async ({ page }) => {
   const chain = await setup(page, { txs: [], published: true, funded: true }, "agency.testnet");
-  await objective(page, { committed: 3, delivered: 1 });
+  await objective(page, { committed: 3, delivered: 3 });
   await evaluation(page, PASSED);
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -437,7 +452,7 @@ test("the evaluator checks the deliveries, publishes the review and attests its 
 test("a DAO member proposes the verdict to the evaluator DAO, with its bond", async ({ page }) => {
   const chain = await setup(page, { txs: [], published: true, funded: true }, "member.testnet");
   const dao = { proposal_bond: "100000000000000000000000", proposers: ["member.testnet"] };
-  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: dao });
+  await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: dao });
   await evaluation(page, PASSED);
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -458,7 +473,7 @@ test("a lost wallet response files no second proposal, and the DAO's record sett
     "member.testnet",
   );
   const dao = { proposal_bond: "100000000000000000000000", proposers: ["member.testnet"] };
-  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: dao });
+  await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: dao });
   await evaluation(page, PASSED);
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -493,7 +508,7 @@ test("a lost response with a transaction hash is settled from its final receipt,
   );
   let receipt: unknown = { final_execution_status: "INCLUDED" };
   await page.route("https://rpc.testnet.near.org/**", (r) => r.fulfill({ json: { jsonrpc: "2.0", id: "proposal", result: receipt } }));
-  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+  await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
   await evaluation(page, PASSED);
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -522,7 +537,7 @@ test("filing again anyway shows duplicates from the DAO without a local history"
     { txs: [], published: true, funded: true, uncertain: "add_proposal", proposalsHidden: true, revealAt: 2 },
     "member.testnet",
   );
-  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+  await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
   await evaluation(page, PASSED);
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -540,7 +555,7 @@ test("filing again anyway shows duplicates from the DAO without a local history"
 
 test("a filing the DAO refused may be filed again", async ({ page }) => {
   const chain = await setup(page, { txs: [], published: true, funded: true, refuseProposal: true }, "member.testnet");
-  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+  await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
   await evaluation(page, PASSED);
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -568,7 +583,7 @@ test("an attestation already proposed by someone else isn't filed again", async 
     },
     "member.testnet",
   );
-  await objective(page, { committed: 3, delivered: 1 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
+  await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
   await evaluation(page, PASSED);
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -579,7 +594,7 @@ test("an attestation already proposed by someone else isn't filed again", async 
 
 test("results with a skipped check offer no attestation", async ({ page }) => {
   await setup(page, { txs: [], published: true, funded: true }, "agency.testnet");
-  await objective(page, { committed: 3, delivered: 1 });
+  await objective(page, { committed: 3, delivered: 3 });
   await evaluation(page, [PASSED[0]!, { criterion_id: "page", outcome: "skipped", detail: "could not check", evidence: [] }]);
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
@@ -587,14 +602,20 @@ test("results with a skipped check offer no attestation", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Attest/ })).toHaveCount(0);
 });
 
-test("achieved can't be attested until every contributor committed", async ({ page }) => {
-  await setup(page, { txs: [], published: true, funded: true }, "agency.testnet");
-  await objective(page, { committed: 1, delivered: 1 });
-  await evaluation(page, PASSED);
+test("a slot with no report makes the review failed, with a warning, never achieved", async ({ page }) => {
+  const chain = await setup(page, { txs: [], published: true, funded: true }, "agency.testnet");
+  // both committed, only the organizer delivered: every check passes, yet venue's report is missing
+  await objective(page, { committed: 3, delivered: 1 });
+  await evaluation(page, PASSED, DELIVERED.slice(0, 1));
   await page.goto(`/o/${ADDRESS}`);
   await page.getByRole("button", { name: "Check the deliveries" }).click();
-  await expect(page.getByRole("alert")).toContainText("Not every contributor committed");
-  await expect(page.getByRole("button", { name: /Attest/ })).toHaveCount(0);
+  await expect(page.getByRole("alert").filter({ hasText: "No verified report from venue.testnet" })).toContainText(
+    "ends the objective before that contributor can still deliver",
+  );
+  await expect(page.getByRole("button", { name: "Attest achieved" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Attest failed" }).click();
+  await expect.poll(() => chain.txs.map((t) => t.calls[0]!.method)).toEqual(["__fastdata_kv", "ob_attest"]);
+  expect(chain.txs[1]!.calls[0]!.args).toMatchObject({ attestation: { verdict: "failed" } });
 });
 
 test("a visitor who can't propose to the evaluator DAO sees the checker", async ({ page }) => {
@@ -622,7 +643,7 @@ test("the effective acceptance deadline keeps attestation available", async ({ p
   await setup(page, { txs: [], published: true, funded: true }, "agency.testnet");
   await objective(
     page,
-    { committed: 3, delivered: 1, deadline: "2027-03-02T00:00:00Z" },
+    { committed: 3, delivered: 3, deadline: "2027-03-02T00:00:00Z" },
     {
       documents: { params: { ...PARAMS, deadline: "2020-01-01T00:00:00Z", acceptance_window_secs: 3600 }, spec: SPEC },
     },
@@ -649,7 +670,7 @@ test("delivery-proof recovery remains accessible on mobile", async ({ page }, te
 
 test("after the effective deadline, attestation is blocked and closing is available", async ({ page }) => {
   const chain = await setup(page, { txs: [], published: true, funded: true }, "agency.testnet");
-  await objective(page, { committed: 3, delivered: 1 });
+  await objective(page, { committed: 3, delivered: 3 });
   await evaluation(page, PASSED);
   await page.clock.setFixedTime(new Date("2028-01-01T00:00:00Z"));
   await page.goto(`/o/${ADDRESS}`);

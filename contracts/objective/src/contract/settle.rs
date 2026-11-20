@@ -127,8 +127,10 @@ impl State {
         if self.deadline < Timestamp::now() {
             return Err(Error::DeadlineExpired);
         }
-        if verdict == Verdict::Achieved && self.committed != params.all_contributors() {
-            return Err(Error::NotCommitted);
+        // delivery implies commitment, so achieved and accepted share a
+        // precondition: every slot delivered
+        if verdict == Verdict::Achieved && self.delivered != params.all_contributors() {
+            return Err(Error::NotDelivered);
         }
         self.resolve(params, verdict.into(), review_hash)?;
         self.dispatch(params)

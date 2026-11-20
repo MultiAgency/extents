@@ -221,6 +221,7 @@ fn achieved_pays_contributors_and_retries_failures() {
     fund(&mut contract, &p, "sponsor.test", 1);
     assert_eq!(contract.ob_view().no_verify().funded, 1_001);
     commit_all(&mut contract, &p);
+    deliver_all(&mut contract, &p);
 
     call_from("evaluator.test", vec![]);
     let attestation = Attestation {
@@ -341,16 +342,18 @@ fn contributors_commit_once_before_verdict_and_deadline() {
 }
 
 #[test]
-fn achieved_requires_every_commitment() {
+fn achieved_requires_every_delivery() {
     let p = params(&[HALF, HALF], 3600);
     let mut contract = deploy(&p);
+    commit_all(&mut contract, &p);
     call_from("c0.test", vec![]);
-    contract.ob_commit(p.clone());
+    contract.ob_deliver(p.clone(), Delivery { hash: [1; 32] });
 
+    // everyone committed, one delivered
     call_from("evaluator.test", vec![]);
     assert!(matches!(
         contract.attest(&id("evaluator.test"), &p, Verdict::Achieved.into()),
-        Err(Error::NotCommitted)
+        Err(Error::NotDelivered)
     ));
     // failing needs no agreement from anyone
     contract
@@ -558,6 +561,7 @@ fn only_evaluator_attests_once_before_deadline() {
     let p = params(&[1_000_000], 3600);
     let mut contract = deploy(&p);
     commit_all(&mut contract, &p);
+    deliver_all(&mut contract, &p);
 
     call_from("c0.test", vec![]);
     assert!(matches!(
@@ -779,6 +783,7 @@ fn lost_payout_callback_leaves_no_recovery_path() {
     let mut contract = deploy(&p);
     fund(&mut contract, &p, "sponsor.test", 100);
     commit_all(&mut contract, &p);
+    deliver_all(&mut contract, &p);
 
     call_from("evaluator.test", vec![]);
     assert!(matches!(
@@ -844,6 +849,8 @@ fn backup_takes_an_empty_slot_after_commit_by_and_is_paid() {
     ));
     call_from("b1.test", vec![]);
     contract.ob_deliver(p.clone(), Delivery { hash: [1; 32] });
+    call_from("c0.test", vec![]);
+    contract.ob_deliver(p.clone(), Delivery { hash: [2; 32] });
 
     call_from("evaluator.test", vec![]);
     contract
@@ -898,6 +905,7 @@ fn a_sponsor_holding_a_slot_is_reported_its_whole_payout() {
     let mut contract = deploy(&p);
     fund(&mut contract, &p, "sponsor.test", 1_001);
     commit_all(&mut contract, &p);
+    deliver_all(&mut contract, &p);
 
     call_from("evaluator.test", vec![]);
     contract
@@ -1057,6 +1065,7 @@ fn payouts_share_unused_gas() {
     let mut contract = deploy(&p);
     fund(&mut contract, &p, "sponsor.test", 1_000);
     commit_all(&mut contract, &p);
+    deliver_all(&mut contract, &p);
     call_from("evaluator.test", vec![]);
     contract
         .ob_attest(p.clone(), Verdict::Achieved.into())

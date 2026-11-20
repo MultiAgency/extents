@@ -43,8 +43,8 @@ pub enum Error {
     InvalidShares,
     #[error("JSON: {0}")]
     JSON(#[from] serde_json::Error),
-    #[error("not all contributors have committed")]
-    NotCommitted,
+    #[error("not all contributors have delivered")]
+    NotDelivered,
     #[error("commit before delivering")]
     NotCommittedYet,
     #[error("unauthorized")]

@@ -21,8 +21,8 @@ async fn failed_payouts_are_requeued_and_retried() -> Result<()> {
     )?;
     let objective = env.deploy(&params).await?;
     assert!(env.fund(&objective, AMOUNT).await?.ok());
-    assert!(env.commit(c0, &objective).await?.ok());
-    assert!(env.commit(c1, &objective).await?.ok());
+    env.take_part(c0, &objective).await?;
+    env.take_part(c1, &objective).await?;
 
     // Locked: every payout is rejected by the Verifier.
     env.lock(objective.account()).await?;
@@ -107,7 +107,7 @@ async fn worst_case_close_retries_eleven_payouts_and_deletes() -> Result<()> {
     let objective = env.deploy(&params).await?;
     assert!(env.fund(&objective, AMOUNT).await?.ok());
     for contributor in &env.contributors {
-        assert!(env.commit(contributor, &objective).await?.ok());
+        env.take_part(contributor, &objective).await?;
     }
 
     env.lock(objective.account()).await?;

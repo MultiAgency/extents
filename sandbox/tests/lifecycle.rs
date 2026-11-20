@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use extents_client::objective::Objective;
-use extents_objective::{Attestation, Verdict, auth_call::Action, gas};
+use extents_objective::{Attestation, Delivery, Verdict, auth_call::Action, gas};
 use extents_sandbox::{Env, Receipt, call};
 use near_kit::{Gas, NearToken};
 use serde_json::json;
@@ -60,12 +60,24 @@ async fn achieved_pays_shares_from_a_zero_balance() -> Result<()> {
     assert!(
         refused
             .error()
-            .contains("not all contributors have committed"),
+            .contains("not all contributors have delivered"),
         "{}",
         refused.error()
     );
 
+    // Committed but not delivered is not enough either.
     assert!(env.commit(c1, &objective).await?.ok());
+    let undelivered = env.attest(&objective, achieved()).await?;
+    assert!(
+        undelivered
+            .error()
+            .contains("not all contributors have delivered"),
+        "{}",
+        undelivered.error()
+    );
+    for (contributor, hash) in [(c0, [1; 32]), (c1, [2; 32])] {
+        assert!(env.deliver(contributor, &objective, hash).await?.ok());
+    }
     let sponsor_before = env.mt_balance(&env.sponsor.id).await?;
     let attest = env.attest(&objective, achieved()).await?;
     assert!(attest.ok(), "{}", attest.error());
@@ -245,7 +257,7 @@ async fn commit_and_attest_by_signed_intent() -> Result<()> {
     let env = Env::new(2).await?;
     let objective = funded(&env, SEVENTY_THIRTY, true).await?;
 
-    for contributor in &env.contributors {
+    for (contributor, hash) in env.contributors.iter().zip([[1; 32], [2; 32]]) {
         env.register_key(contributor).await?;
         let signed = env
             .sign_auth_call(contributor, &objective, Action::Commit)
@@ -255,6 +267,17 @@ async fn commit_and_attest_by_signed_intent() -> Result<()> {
         assert_eq!(
             outcome.events("committed")[0]["contributor"],
             contributor.id.as_str()
+        );
+        let signed = env
+            .sign_auth_call(contributor, &objective, Action::Deliver(Delivery { hash }))
+            .await?;
+        let outcome = env.execute_intents(&[signed]).await?;
+        assert!(outcome.ok(), "{}", outcome.error());
+        assert_eq!(
+            outcome.events("delivered").len(),
+            1,
+            "{:?}",
+            outcome.failed_receipts()
         );
     }
 
@@ -287,10 +310,10 @@ const TEN_TENTHS: &[(usize, u32)] = &[
     (9, 100_000),
 ];
 
-async fn all_committed(env: &Env, auth_call: bool) -> Result<Objective> {
+async fn all_delivered(env: &Env, auth_call: bool) -> Result<Objective> {
     let objective = funded(env, TEN_TENTHS, auth_call).await?;
     for contributor in &env.contributors {
-        assert!(env.commit(contributor, &objective).await?.ok());
+        env.take_part(contributor, &objective).await?;
     }
     Ok(objective)
 }
@@ -317,7 +340,7 @@ fn assert_eleven_payouts_fit(outcome: &extents_sandbox::Outcome) {
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn ten_contributors_settle_in_one_transaction() -> Result<()> {
     let env = Env::new(10).await?;
-    let objective = all_committed(&env, false).await?;
+    let objective = all_delivered(&env, false).await?;
 
     let attest = env.attest(&objective, achieved()).await?;
     assert!(attest.ok(), "{}", attest.error());
@@ -333,7 +356,7 @@ async fn ten_contributors_settle_in_one_transaction() -> Result<()> {
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn ten_contributors_settle_by_signed_intent() -> Result<()> {
     let env = Env::new(10).await?;
-    let objective = all_committed(&env, true).await?;
+    let objective = all_delivered(&env, true).await?;
 
     env.register_key(&env.evaluator).await?;
     let signed = env

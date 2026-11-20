@@ -49,6 +49,8 @@ export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
   // every request holds a slot until its response is consumed; only costly work (a model run, checks, a deploy) spends the hourly allowance
   const slots = new Budget(Infinity, 4);
+  // the evaluator's memory for the retry rule; per process, so a restart only restarts the retry window
+  const unreachableSince = new Map<string, number>();
   const hourly = new Budget(200, Infinity);
   /** Spends one costly operation, or says why not. */
   const charge = (): string | undefined => {
@@ -136,7 +138,7 @@ export function createApp(deps: AppDeps): Hono {
       if (!parsed.success) return c.json({ error: "invalid run input" }, 400);
       const spent = charge();
       if (spent) return c.json({ error: spent }, 429);
-      return sse((signal) => runner(parsed.data, { ...deps, signal }), c.req.raw.signal, c.req.header("accept"));
+      return sse((signal) => runner(parsed.data, { ...deps, unreachableSince, signal }), c.req.raw.signal, c.req.header("accept"));
     });
   }
 
@@ -155,7 +157,7 @@ export function createApp(deps: AppDeps): Hono {
   });
 
   /** Extents for other agents: see /llms.txt. */
-  app.all("/mcp", (c) => mcpResponse(c.req.raw, { ...deps, charge }));
+  app.all("/mcp", (c) => mcpResponse(c.req.raw, { ...deps, unreachableSince, charge }));
 
   app.get("/api/objective/:id", async (c) => {
     try {

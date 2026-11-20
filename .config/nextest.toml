@@ -10,3 +10,6 @@ test-group = 'docker'
 # The slowest test takes about 8 minutes. One still running at 20 minutes is
 # hung, not slow.
 slow-timeout = { period = "120s", terminate-after = 10 }
+# Show each passing test's output too: it names the wasm sha256 it tested.
+# (`--no-capture` would do this, but it also runs tests one at a time.)
+success-output = "final"

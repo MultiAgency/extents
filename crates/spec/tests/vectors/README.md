@@ -11,7 +11,9 @@ made up; only the format is real.
 - `rejected/`: documents an implementation must refuse. Each is `spec.json` or
   `review.json` with one change, named by the file. The exception is
   `review-achieved-with-skipped.json`, which makes the failing criterion pass
-  and the verdict `achieved` while one criterion stays skipped. The reviews
+  and the verdict `achieved` while one criterion stays skipped, and
+  `review-achieved-with-missing.json`, which passes every criterion but lists
+  a contributor whose report was never published. The reviews
   are checked against `spec.json`.
 - `spec-unicode.json`: keys outside the Basic Multilingual Plane next to a
   private-use BMP key (UTF-16 order puts 😀 first; code point order would

@@ -89,11 +89,11 @@ advances block time by about 0.3 s.
 
 | Test | Shows |
 | --- | --- |
-| `achieved_pays_shares_from_a_zero_balance` | An achieved verdict is refused until both contributors have committed. Once both have, it pays 70/30 exactly, with the rounding remainder to the sponsor, and emits `committed`, `resolved` (with `review_hash`) and `paid`. Each payout attaches 1 yoctoNEAR while the instance's NEAR balance stays 0. After the deadline, `ob_close` deletes the account. |
+| `achieved_pays_shares_from_a_zero_balance` | An achieved verdict is refused until both contributors have delivered: with one commitment, and again with both committed but neither delivered. Once both have delivered, it pays 70/30 exactly, with the rounding remainder to the sponsor, and emits `committed`, `resolved` (with `review_hash`) and `paid`. Each payout attaches 1 yoctoNEAR while the instance's NEAR balance stays 0. After the deadline, `ob_close` deletes the account. |
 | `failed_returns_everything_to_the_sponsor` | A failed verdict returns the whole amount to the sponsor in one payout. |
 | `expired_returns_funds_and_deletion_pays_the_closer` | A `StateInit` deposit is refunded to the signer, and the instance starts at 0 NEAR. NEAR sent by a plain transfer stays. `ob_close` is refused before the deadline. After it, `ob_close` resolves as expired and returns everything, and the account is deleted in the same transaction. The closer receives the instance's NEAR less the payout's 1 yoctoNEAR. |
 | `fund_by_signed_transfer_intent` | Funding by a signed `transfer` intent whose `msg` is the fund message, as an account without NEAR for gas, or a DAO's derived account, funds. The Verifier calls `mt_on_transfer` with the signer as sender. A non-sponsor's identical intent is refused, and the Verifier refunds it. |
-| `commit_and_attest_by_signed_intent` | Both contributors commit, and the evaluator attests, by signed `auth_call` intents relayed to `execute_intents`. Each contributor's key is registered with `add_public_key` first. The payouts are exact. |
+| `commit_and_attest_by_signed_intent` | Both contributors commit and deliver, and the evaluator attests, by signed `auth_call` intents relayed to `execute_intents`. Each contributor's key is registered with `add_public_key` first. The payouts are exact. |
 | `ten_contributors_settle_in_one_transaction` | Ten contributors and eleven payouts in one `ob_attest`. Each `mt_transfer` uses less than its 15 Tgas, and the callback less than its 10. |
 | `ten_contributors_settle_by_signed_intent` | The same, with the evaluator attesting by signed intent with `Params::attest_gas` (210 Tgas) as `min_gas`. The Verifier forwards more than that to `on_auth`. |
 

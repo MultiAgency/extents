@@ -10,10 +10,10 @@ import { z } from "zod";
 
 import type { Dao } from "../shared/attest.ts";
 import type { Params } from "../shared/params.ts";
-import { judgedText } from "../shared/judge.ts";
+import { judgedText, utf8Bytes } from "../shared/judge.ts";
 import { buildReview, summarize, type CheckResult, type Delivered } from "../shared/review.ts";
 import { accountId, parseSpec, type Spec } from "../shared/spec.ts";
-import { deliveredBy, verifyReports } from "../shared/delivery.ts";
+import { deliveredBy, holders, verifyReports } from "../shared/delivery.ts";
 import { checksForRun, runCheck, type CheckDeps, type Deliverable } from "./checks.ts";
 import { canonicalize } from "../shared/jcs.ts";
 import { DeliveryProofError } from "./fastdata.ts";
@@ -32,13 +32,62 @@ export interface CheckRunDeps {
   delivered(objective: string, contributors: string[], signal?: AbortSignal): Promise<Delivered[]>;
   newId?: () => string;
   signal?: AbortSignal;
+  /**
+   * When each criterion was first found unreachable on the contributor's side,
+   * by objective and criterion: the evaluator's memory for the retry rule.
+   */
+  unreachableSince?: Map<string, number>;
+  clock?: () => number;
 }
+
+/** A contributor-side outage fails its criterion once it outlasts this; a first sighting only records it. */
+export const RETRY_MS = 10 * 60 * 1000;
+
+/**
+ * The retry rule: the first time a criterion finds something the contributor
+ * cited unreachable it is recorded and stays skipped; a run at least
+ * `RETRY_MS` later that still finds it unreachable fails it. A reachable run
+ * forgets the sighting.
+ */
+function retryRule(objective: string, deps: CheckRunDeps): (r: CheckResult) => CheckResult {
+  const seen = deps.unreachableSince;
+  const now = (deps.clock ?? Date.now)();
+  return (r) => {
+    if (!seen) return r;
+    const key = `${objective}:${r.criterion_id}`;
+    if (!r.unavailable) {
+      seen.delete(key);
+      return r;
+    }
+    const since = seen.get(key);
+    if (since === undefined) {
+      seen.set(key, now);
+      return { ...r, detail: `${r.detail}. Recorded; if it is still unreachable ${RETRY_MS / 60_000} minutes from now, it fails.` };
+    }
+    if (now - since < RETRY_MS) return { ...r, detail: `${r.detail}. Still within the ${RETRY_MS / 60_000}-minute retry window.` };
+    const { unavailable: _, ...settled } = r;
+    return {
+      ...settled,
+      outcome: "fail",
+      detail: `${r.detail}; still unreachable ${Math.round((now - since) / 60_000)} minutes after it was first found so`,
+    };
+  };
+}
+
+/** Who wrote a report longer than the spec allows, in UTF-8 bytes. */
+const overLimit = (spec: Spec, reports: { contributor: string; text: string }[]): string[] =>
+  spec.max_report_bytes === undefined ? [] : reports.filter((r) => utf8Bytes(r.text) > spec.max_report_bytes!).map((r) => r.contributor);
 
 /** A reason to stop that the caller reads as is. */
 class Refusal extends Error {}
 
 /** Every criterion as a tool call, then each result as it finishes; returns the results. */
-async function* streamChecks(spec: Spec, deliverable: Deliverable, deps: CheckRunDeps): AsyncGenerator<BaseEvent, CheckResult[]> {
+async function* streamChecks(
+  spec: Spec,
+  deliverable: Deliverable,
+  deps: CheckRunDeps,
+  settle: (r: CheckResult) => CheckResult = (r) => r,
+): AsyncGenerator<BaseEvent, CheckResult[]> {
   const newId = deps.newId ?? (() => crypto.randomUUID());
   const messageId = newId();
   for (const c of spec.criteria) {
@@ -67,8 +116,9 @@ async function* streamChecks(spec: Spec, deliverable: Deliverable, deps: CheckRu
   const results: CheckResult[] = [];
   while (pending.size) {
     deps.signal?.throwIfAborted();
-    const r = await abortable(deps.signal, () => Promise.race(pending.values()));
-    pending.delete(r.criterion_id);
+    const raw = await abortable(deps.signal, () => Promise.race(pending.values()));
+    pending.delete(raw.criterion_id);
+    const r = settle(raw);
     results.push(r);
     yield { type: EventType.TOOL_CALL_RESULT, messageId: newId(), toolCallId: r.criterion_id, content: JSON.stringify(r) } as BaseEvent;
   }
@@ -109,10 +159,14 @@ export function runChecks(input: RunAgentInput, deps: CheckRunDeps): AsyncGenera
     const { spec } = await published(deps.chain, request.objective, deps.signal);
     // Drafts aren't attested evidence and must not consume the evaluation archive.
     return summarize(
-      yield* streamChecks(spec, request.deliverable, {
-        ...deps,
-        checks: { ...deps.checks, archive: undefined },
-      }),
+      yield* streamChecks(
+        spec,
+        { ...request.deliverable, oversized: overLimit(spec, [{ contributor: "this report", text: request.deliverable.text }]) },
+        {
+          ...deps,
+          checks: { ...deps.checks, archive: undefined },
+        },
+      ),
     );
   });
 }
@@ -126,24 +180,47 @@ export function runEvaluation(input: RunAgentInput, deps: CheckRunDeps): AsyncGe
   return run(input, "Send the objective to evaluate.", async function* () {
     const objective = accountId.parse((input.forwardedProps as { objective?: unknown } | undefined)?.objective);
     const { params, spec, state, evaluator_dao } = await published(deps.chain, objective, deps.signal);
-    const expected = deliveredBy(params, state);
-    if (!expected.length) throw new Refusal("Nobody has delivered yet.");
-    const delivered = await abortable(deps.signal, () => deps.delivered(objective, expected, deps.signal));
+    const onChain = deliveredBy(params, state);
+    // each delivered slot's report on its own: an absent report is missing, an unconfirmable one stops the run
+    const reports = await abortable(deps.signal, () =>
+      Promise.allSettled(onChain.map((contributor) => deps.delivered(objective, [contributor], deps.signal))),
+    );
+    const delivered: Delivered[] = [];
+    for (const r of reports) {
+      if (r.status === "fulfilled") delivered.push(...r.value);
+      else if (!(r.reason instanceof DeliveryProofError && r.reason.kind === "missing")) throw r.reason;
+    }
     try {
-      verifyReports(expected, delivered);
+      verifyReports(onChain, delivered);
     } catch (e) {
       throw new Refusal(e instanceof Error ? e.message : String(e));
     }
+    // every slot without a judged report: not delivered on chain, or delivered with no valid published report
+    const missing = holders(params, state?.taken).filter((h) => !delivered.some((d) => d.contributor === h));
     const archive = deps.checks.archive;
     if (archive) {
       await abortable(deps.signal, () => archive(new TextEncoder().encode(canonicalize(spec))));
       for (const report of delivered) await abortable(deps.signal, () => archive(new TextEncoder().encode(report.text)));
     }
-    const results = yield* streamChecks(spec, { text: judgedText(delivered) }, deps);
+    // with nothing to judge, no model is asked; the missing reports already fail the objective
+    const checkDeps = delivered.length ? deps : { ...deps, checks: { ...deps.checks, judge: undefined } };
+    const results = yield* streamChecks(
+      spec,
+      { text: judgedText(delivered), oversized: overLimit(spec, delivered) },
+      checkDeps,
+      retryRule(objective, deps),
+    );
     deps.signal?.throwIfAborted();
-    const review = buildReview(objective, spec, delivered, results);
+    const review = buildReview(objective, spec, delivered, results, missing);
     if (review && archive) await abortable(deps.signal, () => archive(new TextEncoder().encode(canonicalize(review))));
     // params and the evaluator DAO ride along so a caller preparing the attestation needn't read the objective again
-    return { summary: summarize(results), delivered, params, ...(evaluator_dao ? { evaluator_dao } : {}), ...(review ? { review } : {}) };
+    return {
+      summary: summarize(results),
+      delivered,
+      ...(missing.length ? { missing } : {}),
+      params,
+      ...(evaluator_dao ? { evaluator_dao } : {}),
+      ...(review ? { review } : {}),
+    };
   });
 }

@@ -33,7 +33,20 @@ const pageSchema = z.object({
 });
 type Row = z.infer<typeof pageSchema>["entries"][number];
 
-export class DeliveryProofError extends Error {}
+/**
+ * Why a contributor's report can't be used: `missing` when no valid report is
+ * published (none, a malformed proof, or text that doesn't match the hash on
+ * chain), which a review may record as missing; `unverified` when the chain
+ * couldn't confirm it just now, which only a later run can settle.
+ */
+export class DeliveryProofError extends Error {
+  constructor(
+    message: string,
+    readonly kind: "missing" | "unverified",
+  ) {
+    super(message);
+  }
+}
 
 /** One page of rows, and every page of an objective together: bounded before parsing, so a large answer can't fill memory. */
 const MAX_PAGE_BYTES = 4 * 1024 * 1024;
@@ -184,7 +197,10 @@ export async function readDeliverables(objective: string, contributors: string[]
         !/^[1-9A-HJ-NP-Za-km-z]{32,64}$/.test(value.delivery_tx) ||
         !accountId.safeParse(value.delivery_signer).success
       )
-        throw new DeliveryProofError(`The delivery proof for ${contributor} is missing. Publish its report and delivery transaction.`);
+        throw new DeliveryProofError(
+          `The delivery proof for ${contributor} is missing. Publish its report and delivery transaction.`,
+          "missing",
+        );
       const res = await fetch(RPC_URL, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -205,7 +221,7 @@ export async function readDeliverables(objective: string, contributors: string[]
       try {
         response = JSON.parse(new TextDecoder().decode(bytes!));
       } catch {
-        throw new DeliveryProofError("The delivery transaction could not be verified. Try again later.");
+        throw new DeliveryProofError("The delivery transaction could not be verified. Try again later.", "unverified");
       }
       const outcome = response.result;
       if (
@@ -214,11 +230,15 @@ export async function readDeliverables(objective: string, contributors: string[]
         outcome.transaction?.hash !== value.delivery_tx ||
         outcome.transaction?.signer_id !== value.delivery_signer
       )
-        throw new DeliveryProofError("The delivery transaction is not finalized. Check its hash and signer, or try again later.");
+        throw new DeliveryProofError(
+          "The delivery transaction is not finalized. Check its hash and signer, or try again later.",
+          "unverified",
+        );
       const hash = deliveryHash(outcome, objective, contributor);
       if (!hash || hash !== reportHash(value.text))
         throw new DeliveryProofError(
           `The report for ${contributor} does not match its on-chain delivery. Republish the exact delivered report and transaction proof.`,
+          "missing",
         );
       return {
         contributor,

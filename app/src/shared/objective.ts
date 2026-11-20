@@ -3,6 +3,7 @@
  * Runs in the browser and on the server alike, so the card a customer
  * approves shows the same `Params` and address the chain will see.
  */
+import { judgedBytesBound, MAX_JUDGED_BYTES, maxReportBytesFor } from "./judge.ts";
 import { z } from "zod";
 
 import { PARAMS_TOKEN, TOKEN, VERIFIER } from "./config.ts";
@@ -84,6 +85,15 @@ function toPips(percent: number): number {
  */
 export function buildObjective(p: Proposal, sponsor: string, salt: string, codeHash: string, now = Date.now()): Objective {
   validateAppSpec(p.spec);
+  // every contributor's report, at its limit, must fit what the judge reads in one call
+  const contributors = Object.keys(p.contributors).length;
+  if (
+    p.spec.criteria.some((c) => c.check.kind === "llm_judge") &&
+    judgedBytesBound(contributors, p.spec.max_report_bytes!) > MAX_JUDGED_BYTES
+  )
+    throw new Error(
+      `max_report_bytes ${p.spec.max_report_bytes} for ${contributors} contributors is more than the judge reads in one call; use at most ${maxReportBytesFor(contributors)}`,
+    );
   let deadline = NaN;
   try {
     // UTC to the second for drafts; timestampNanos refuses impossible dates such as February 30th

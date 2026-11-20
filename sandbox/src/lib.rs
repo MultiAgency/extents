@@ -526,6 +526,27 @@ impl Env {
         send_call(contributor, &objective.commit()).await
     }
 
+    /// Commits and delivers as `contributor`, as an achieved verdict
+    /// requires of every slot. The delivery is the hash of its account id.
+    pub async fn take_part(&self, contributor: &Actor, objective: &Objective) -> Result<()> {
+        let commit = self.commit(contributor, objective).await?;
+        ensure!(
+            commit.ok(),
+            "commit by {}: {}",
+            contributor.id,
+            commit.error()
+        );
+        let hash = Sha256::digest(contributor.id.as_bytes()).into();
+        let deliver = self.deliver(contributor, objective, hash).await?;
+        ensure!(
+            deliver.ok(),
+            "deliver by {}: {}",
+            contributor.id,
+            deliver.error()
+        );
+        Ok(())
+    }
+
     /// Records `contributor`'s delivery of the work hashed as `hash`.
     pub async fn deliver(
         &self,

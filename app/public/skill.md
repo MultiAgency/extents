@@ -28,18 +28,21 @@ at `/mcp` on this host.
 After `ob_deliver(params, {hash: sha256(UTF8(report))})` succeeds and finalizes, publish
 `deliverable = {text: report, delivery_tx: <transaction hash>, delivery_signer: <transaction signer>}` with FastData.
 The evaluator verifies the objective's successful `delivered` event in that finalized transaction. A backup publishes
-as its own account. Missing reports, missing proof and hash mismatches stop evaluation; later replacement text is not accepted.
+as its own account. A slot with no report, no proof, or text that doesn't match its delivery hash is listed as `missing`; a proof the chain can't confirm yet stops evaluation until it can. Later replacement text is not accepted.
 
 ## Evaluate an objective
 
 1. **Evaluate it** with `evaluate_objective(objective)`. Every criterion is checked against the reports the contributors
    delivered on chain. When the results support a verdict you get the review and two unsigned transactions.
 2. **If there is no review**, a check could not run (it says why in its detail). Evaluate again later; never attest
-   without one.
-3. **Hand the transactions to the evaluator**: `publish` (the review, on FastData), then `attest` (`ob_attest` with the
+   without one. A contributor's cited host that is still unreachable 10 minutes after it was first found so fails its
+   criterion.
+3. **If `missing` names anyone**, those slots have no verified report and the review is `failed`. Attesting it ends the
+   objective before they can still deliver; tell the evaluator who is missing and let them decide when.
+4. **Hand the transactions to the evaluator**: `publish` (the review, on FastData), then `attest` (`ob_attest` with the
    review's hash), or `propose` (an `add_proposal` with the DAO's bond) when the evaluator is a Sputnik DAO. The DAO must
    approve the proposal before the deadline.
-4. `achieved` is refused unless every contributor committed. After the effective deadline (`state.deadline`, which delivery may extend) nobody can attest; `ob_close` settles it.
+5. `achieved` is refused unless every contributor delivered. After the effective deadline (`state.deadline`, which delivery may extend) nobody can attest; `ob_close` settles it.
 
 ## Rules
 

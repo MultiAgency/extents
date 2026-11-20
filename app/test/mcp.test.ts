@@ -148,9 +148,15 @@ describe("MCP", () => {
       });
     });
 
-    test("says why when there is nothing to judge", async () => {
+    test("with nothing delivered, the review fails on the missing report alone", async () => {
       view = { deployed: true, state: { delivered: 0 }, documents: { params, spec: o.spec } };
-      expect((await call("evaluate_objective", { objective: o.accountId })).value).toEqual({ error: "Nobody has delivered yet." });
+      const { value } = await call("evaluate_objective", { objective: o.accountId });
+      expect(value.missing).toEqual(Object.keys(params.contributors));
+      expect(parseReview(value.review, o.spec)).toMatchObject({
+        verdict: "failed",
+        deliverables: [],
+        missing: Object.keys(params.contributors),
+      });
     });
   });
 });

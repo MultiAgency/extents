@@ -1,5 +1,5 @@
 //! A single objective: a sponsor's resources, held as a NEP-245 balance on the
-//! Verifier, released to committed contributors only when an evaluator attests
+//! Verifier, released to contributors who delivered, only when an evaluator attests
 //! that the objective was achieved, and returned to the sponsor otherwise.
 //!
 //! Every instance lives at a [NEP-616] deterministic account derived from its
@@ -42,8 +42,7 @@ pub trait Objective {
 
     /// Records the evaluator's verdict and allocates the funded balance:
     /// * [`Verdict::Achieved`]: to contributors by their shares, rounding
-    ///   remainder to the sponsor. Requires every contributor to have
-    ///   committed.
+    ///   remainder to the sponsor. Requires every slot to have delivered.
     /// * [`Verdict::Failed`]: entirely to the sponsor
     ///
     /// Only `params.evaluator`, only once, only before the deadline or the

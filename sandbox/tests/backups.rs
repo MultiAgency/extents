@@ -58,6 +58,13 @@ async fn backup_takes_an_empty_slot_and_is_paid() -> Result<()> {
         late.error()
     );
 
+    // An achieved verdict needs every slot delivered: c0's, and c1's by the
+    // backup that took it.
+    for (contributor, hash) in [(c0, [1; 32]), (c2, [2; 32])] {
+        let delivered = env.deliver(contributor, &objective, hash).await?;
+        assert!(delivered.ok(), "{}", delivered.error());
+    }
+
     let (c0_before, c2_before) = (env.mt_balance(&c0.id).await?, env.mt_balance(&c2.id).await?);
     let attest = env.attest(&objective, Verdict::Achieved.into()).await?;
     assert!(attest.ok(), "{}", attest.error());

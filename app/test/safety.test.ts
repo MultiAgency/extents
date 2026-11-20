@@ -51,12 +51,14 @@ describe("delivery provenance", () => {
         JSON.stringify(metadata),
       ).toBeUndefined();
   });
-  test("backups hold slots, while missing, duplicate, or changed reports stop evaluation", () => {
+  test("backups hold slots; a judged report must be its slot's exact on-chain delivery, once", () => {
     const params = { contributors: { "original.testnet": 1_000_000 }, backups: { "original.testnet": contributor } } as unknown as Params;
     expect(holders(params, 1)).toEqual([contributor]);
     const report = { contributor, text: "report", delivery_hash: hash };
     expect(() => verifyReports([contributor], [report])).not.toThrow();
-    expect(() => verifyReports([contributor, "missing.testnet"], [report])).toThrow();
+    // a slot without a report is the review's `missing`, not an error here
+    expect(() => verifyReports([contributor, "missing.testnet"], [report])).not.toThrow();
+    expect(() => verifyReports(["other.testnet"], [report])).toThrow();
     expect(() => verifyReports([contributor], [{ ...report, text: "replacement" }])).toThrow();
     expect(() => verifyReports([contributor, "other.testnet"], [report, report])).toThrow();
   });

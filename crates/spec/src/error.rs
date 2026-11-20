@@ -19,6 +19,8 @@ pub enum Error {
     TooManyCriteria { max: usize },
     #[error("more than {max} llm_judge criteria")]
     TooManyJudges { max: usize },
+    #[error("a spec with an llm_judge needs a positive max_report_bytes")]
+    NoReportLimit,
     #[error("every criterion is llm_judge: at least one must be checked by a script")]
     NoScriptCheck,
     #[error("criterion id {0:?} is not 1 to 32 of a-z, 0-9, '-' or '_'")]
@@ -46,6 +48,8 @@ pub enum Error {
     JudgeMismatch(String),
     #[error("evaluator_build does not match the spec's")]
     EvaluatorBuildMismatch,
+    #[error("{0} is listed as missing and as delivered, or missing twice")]
+    InvalidMissing(String),
     #[error("two deliverables from {0}")]
     DuplicateContributor(String),
     #[error("verdict {verdict} contradicts the results: {reason}")]

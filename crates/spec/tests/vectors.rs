@@ -91,6 +91,10 @@ fn a_fetching_check_fails_without_evidence() {
 #[test]
 fn rejected_specs() {
     assert!(matches!(
+        rejected_spec("spec-judge-without-report-limit.json"),
+        Error::NoReportLimit
+    ));
+    assert!(matches!(
         rejected_spec("spec-lone-surrogate.json"),
         Error::Json(_)
     ));
@@ -118,6 +122,13 @@ fn rejected_specs() {
 
 #[test]
 fn rejected_reviews() {
+    assert!(matches!(
+        rejected_review("review-achieved-with-missing.json"),
+        Error::VerdictMismatch {
+            verdict: "achieved",
+            ..
+        }
+    ));
     assert!(matches!(
         rejected_review("review-verdict-mismatch.json"),
         Error::VerdictMismatch { .. }
@@ -254,4 +265,29 @@ fn a_pinned_build_must_be_recorded() {
     ));
     review["evaluator_build"] = "ab".repeat(32).into();
     Review::from_json(&serde_json::to_vec(&review).unwrap(), &pinned).unwrap();
+}
+
+/// A contributor whose report was never published supports `failed` on its
+/// own, and cannot also be listed as delivered.
+#[test]
+fn a_missing_report_supports_failed() {
+    let mut review: Value = serde_json::from_slice(&vector("review.json")).unwrap();
+    for r in review["results"].as_array_mut().unwrap() {
+        if r["outcome"] == "fail" {
+            r["outcome"] = "pass".into();
+        }
+    }
+    review["missing"] = json!(["venue.testnet"]);
+    let deliverables = review["deliverables"].as_array_mut().unwrap();
+    deliverables.retain(|d| d["contributor"] != "venue.testnet");
+    Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec()).unwrap();
+
+    review["deliverables"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"contributor": "venue.testnet", "sha256": "22".repeat(32)}));
+    assert!(matches!(
+        Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec()),
+        Err(Error::InvalidMissing(_))
+    ));
 }

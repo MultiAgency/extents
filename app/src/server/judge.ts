@@ -11,7 +11,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 
 import { sha256Hex } from "../shared/jcs.ts";
-import { judgeRequest } from "../shared/judge.ts";
+import { judgeRequest, MAX_JUDGED_BYTES, utf8Bytes } from "../shared/judge.ts";
 import { readCapped, withTimeout } from "./bounded.ts";
 import type { CheckDeps } from "./checks.ts";
 import { NEAR_AI_BASE_URL } from "./model.ts";
@@ -50,7 +50,8 @@ export function nearAiJudge({
 }): NonNullable<CheckDeps["judge"]> {
   const auth = { authorization: `Bearer ${apiKey}` };
   return async (model, question, deliverable, signal, archive) => {
-    if (deliverable.text.length > 40_000) throw new Error("The report exceeds the model evaluation limit; it was not truncated");
+    if (utf8Bytes(deliverable.text) > MAX_JUDGED_BYTES)
+      throw new Error("The report exceeds the model evaluation limit; it was not truncated");
     // exactly the bytes crates/spec's judge_request defines, so anyone can rebuild and hash them
     const request = judgeRequest(model, question, deliverable.text);
     const res = await send(`${baseUrl}/chat/completions`, {

@@ -23,11 +23,19 @@ const SPEC = {
       check: { kind: "llm_judge", question: "Could someone else run it?", models: ["m"] },
     },
   ],
+  max_report_bytes: 20_000,
 };
 
 function client(
   documents: unknown,
-  opts: { state?: unknown; delivered?: Delivered[]; judge?: CheckDeps["judge"]; archive?: CheckDeps["archive"]; path?: string } = {},
+  opts: {
+    state?: unknown;
+    delivered?: Delivered[];
+    judge?: CheckDeps["judge"];
+    archive?: CheckDeps["archive"];
+    fetch?: typeof fetch;
+    path?: string;
+  } = {},
 ) {
   const chain: Chain = {
     accountExists: async () => true,
@@ -40,7 +48,7 @@ function client(
     deploy: async () => ({ accountId: "x" }),
     checks: {
       archive: opts.archive,
-      fetch: (async () => new Response("<h1>Meetup in New York</h1>")) as never,
+      fetch: opts.fetch ?? ((async () => new Response("<h1>Meetup in New York</h1>")) as never),
       judge: opts.judge ?? (async () => ({ answer: false, detail: "no venue or costs" })),
     },
     delivered: async (_, contributors) => (opts.delivered ?? []).filter((d) => contributors.includes(d.contributor)),
@@ -148,16 +156,22 @@ describe("/api/check", () => {
 });
 
 describe("/api/evaluate", () => {
-  // a real Params from the contract's vectors, with this spec as its terms
-  const base = (params as unknown as { name: string; params: Params }[]).reduce((a, b) =>
-    Object.keys(b.params.contributors).length > Object.keys(a.params.contributors).length ? b : a,
-  ).params;
+  // a real two-contributor Params from the contract's vectors, with this spec as its terms
+  const base = (params as unknown as { name: string; params: Params }[]).find(
+    (c) => Object.keys(c.params.contributors).length === 2 && !c.params.backups,
+  )!.params;
   const p: Params = { ...base, spec_hash: specHash(SPEC as never) };
-  const [first, second] = contributorsInOrder(p).map(([a]) => a);
+  const [first, second] = contributorsInOrder(p).map(([a]) => a) as [string, string];
   const OBJECTIVE = "0s" + "ab".repeat(20);
   const REPORT = "Event page: https://lu.ma/nyc\nAttendees: 34";
+  const report = (contributor: string, text = REPORT): Delivered => ({ contributor, text, delivery_hash: reportHash(text) });
+  const BOTH = [report(first), report(second)];
   const CALL = { model: "m", request_sha256: "1".repeat(64), response_sha256: "2".repeat(64) };
-  const evaluate = (state: unknown, delivered: Delivered[], yes = true) =>
+  const evaluate = (
+    state: unknown,
+    delivered: Delivered[],
+    opts: { yes?: boolean; judge?: CheckDeps["judge"]; fetch?: typeof fetch } = {},
+  ) =>
     check(
       client(
         { params: p, spec: SPEC },
@@ -165,66 +179,100 @@ describe("/api/evaluate", () => {
           state,
           delivered,
           path: "/api/evaluate",
-          judge: async () => ({ answer: yes, detail: "clear enough", call: { ...CALL, answer: yes } }),
+          judge:
+            opts.judge ?? (async () => ({ answer: opts.yes ?? true, detail: "clear enough", call: { ...CALL, answer: opts.yes ?? true } })),
+          ...(opts.fetch ? { fetch: opts.fetch } : {}),
         },
       ),
       { objective: OBJECTIVE },
     );
 
-  test("judges what was delivered and returns a review that validates, with its model call", async () => {
-    const r = await evaluate({ delivered: 1 }, [{ contributor: first!, text: REPORT, delivery_hash: reportHash(REPORT) }]);
+  test("judges every slot's delivered report and returns an achieved review that validates, with its model call", async () => {
+    const r = await evaluate({ delivered: 3 }, BOTH);
     expect(r.error).toBeUndefined();
     expect(r.summary.summary).toEqual({ passed: 3, failed: 0, skipped: 0, verdict: "achieved" });
     const review = parseReview(r.summary.review, SPEC as never);
-    expect(review).toMatchObject({ objective: OBJECTIVE, verdict: "achieved", deliverables: [{ contributor: first }] });
+    expect(review).toMatchObject({
+      objective: OBJECTIVE,
+      verdict: "achieved",
+      deliverables: [{ contributor: first }, { contributor: second }],
+    });
+    expect(review.missing).toBeUndefined();
     expect(review.results.map((x) => x.criterion_id)).toEqual(["page", "attendance", "useful"]);
     expect(review.llm_calls).toEqual([{ ...CALL, answer: true, criterion_id: "useful" }]);
     expect(reviewHash(review)).toMatch(/^[0-9a-f]{64}$/);
   });
 
   test("a failed criterion makes a failed review", async () => {
-    const r = await evaluate({ delivered: 1 }, [{ contributor: first!, text: REPORT, delivery_hash: reportHash(REPORT) }], false);
+    const r = await evaluate({ delivered: 3 }, BOTH, { yes: false });
     expect(r.summary.review.verdict).toBe("failed");
   });
 
   test("results that support no verdict come back without a review", async () => {
-    const r = await check(
-      client(
-        { params: p, spec: SPEC },
-        {
-          state: { delivered: 1 },
-          delivered: [{ contributor: first!, text: REPORT, delivery_hash: reportHash(REPORT) }],
-          path: "/api/evaluate",
-          judge: async () => {
-            throw new Error("model down");
-          },
-        },
-      ),
-      { objective: OBJECTIVE },
-    );
+    const r = await evaluate({ delivered: 3 }, BOTH, {
+      judge: async () => {
+        throw new Error("model down");
+      },
+    });
     expect(r.summary.summary.verdict).toBe("undecided");
     expect(r.summary.review).toBeUndefined();
   });
 
-  test("only reports from contributors whose delivery is on chain are judged", async () => {
-    expect(second).toBeDefined();
-    const r = await evaluate({ delivered: 1 }, [
-      { contributor: first!, text: REPORT, delivery_hash: reportHash(REPORT) },
-      { contributor: second!, text: "Attendees: 1" },
-    ]);
+  test("a slot not delivered on chain is missing, even if a report was published for it", async () => {
+    const r = await evaluate({ delivered: 1 }, BOTH);
     expect(r.summary.delivered.map((d: Delivered) => d.contributor)).toEqual([first]);
+    expect(r.summary.missing).toEqual([second]);
+    expect(parseReview(r.summary.review, SPEC as never)).toMatchObject({ verdict: "failed", missing: [second] });
   });
 
-  test("a missing or changed report cannot produce an achieved review", async () => {
-    const partial = await evaluate({ delivered: 3 }, [{ contributor: first!, text: REPORT, delivery_hash: reportHash(REPORT) }]);
-    expect(partial.error).toMatch(/Every recorded delivery/);
-    expect(partial.summary).toBeUndefined();
-    const changed = await evaluate({ delivered: 1 }, [{ contributor: first!, text: REPORT, delivery_hash: "0".repeat(64) }]);
-    expect(changed.error).toMatch(/Every recorded delivery/);
+  test("a delivered slot with no published report is missing, and makes the review failed, never achieved", async () => {
+    const r = await evaluate({ delivered: 3 }, [report(first)]);
+    expect(r.summary.summary.verdict).toBe("achieved"); // the checks alone would pass
+    expect(parseReview(r.summary.review, SPEC as never)).toMatchObject({ verdict: "failed", missing: [second] });
   });
 
-  test("nothing delivered is refused", async () => {
-    expect((await evaluate({ delivered: 0 }, [])).error).toMatch(/Nobody has delivered/);
-    expect((await evaluate({ delivered: 1 }, [])).error).toMatch(/Every recorded delivery needs its exact report/);
+  test("with nothing delivered, no model is asked and the review fails on the missing reports", async () => {
+    let asked = 0;
+    const r = await evaluate({ delivered: 0 }, [], { judge: async () => (asked++, { answer: true, detail: "x" }) });
+    expect(asked).toBe(0);
+    expect(parseReview(r.summary.review, SPEC as never)).toMatchObject({ verdict: "failed", deliverables: [], missing: [first, second] });
+  });
+
+  test("a report that isn't its delivery's exact text stops the run", async () => {
+    const changed = await evaluate({ delivered: 1 }, [{ ...report(first), delivery_hash: "0".repeat(64) }]);
+    expect(changed.error).toMatch(/exact one its on-chain delivery committed/);
+  });
+
+  test("a contributor's unreachable host is recorded first, then fails once it outlasts the retry window", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-20T10:00:00Z"));
+      const down = (async () => new Response("unavailable", { status: 503 })) as never;
+      const agent = client(
+        { params: p, spec: SPEC },
+        {
+          state: { delivered: 3 },
+          delivered: BOTH,
+          path: "/api/evaluate",
+          fetch: down,
+          judge: async () => ({ answer: true, detail: "x", call: { ...CALL, answer: true } }),
+        },
+      );
+      const firstRun = await check(agent, { objective: OBJECTIVE });
+      expect(firstRun.results.page).toMatchObject({ outcome: "skipped" });
+      expect(firstRun.results.page!.detail).toMatch(/Recorded/);
+      expect(firstRun.summary.review).toBeUndefined();
+
+      vi.setSystemTime(new Date("2026-11-20T10:05:00Z"));
+      expect((await check(agent, { objective: OBJECTIVE })).results.page).toMatchObject({ outcome: "skipped" });
+
+      vi.setSystemTime(new Date("2026-11-20T10:11:00Z"));
+      const later = await check(agent, { objective: OBJECTIVE });
+      expect(later.results.page).toMatchObject({ outcome: "fail" });
+      expect(later.results.page!.detail).toMatch(/still unreachable 11 minutes/);
+      expect(parseReview(later.summary.review, SPEC as never).verdict).toBe("failed");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

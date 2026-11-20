@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { attestationOf, attestProposal, mayPropose, type Dao } from "../shared/attest.ts";
 import { calls } from "../shared/calls.ts";
+import { utf8Bytes } from "../shared/judge.ts";
 import { deliveredBy, deliveryHash, holders, verifyReports } from "../shared/delivery.ts";
 import type { DraftState } from "../shared/draft.ts";
 import { formatUnits } from "../shared/objective.ts";
@@ -149,6 +150,7 @@ export function ObjectivePage({ address }: { address: string }) {
             committed={Boolean(bit(view.state?.committed, index))}
             delivered={Boolean(bit(view.state?.delivered, index))}
             funded={funded > 0n}
+            maxReportBytes={docs.spec.max_report_bytes}
             near={near}
             onChange={refresh}
           />
@@ -165,7 +167,8 @@ export function ObjectivePage({ address }: { address: string }) {
             dao={accountId === docs.params.evaluator ? undefined : view.evaluator_dao}
             effectiveDeadline={view.state?.deadline ?? docs.params.deadline}
             deliveredBy={deliveredBy(docs.params, view.state)}
-            allCommitted={order.every((_, i) => bit(view.state?.committed, i))}
+            slots={order}
+            allDelivered={order.every((_, i) => bit(view.state?.delivered, i))}
             near={near}
             onChange={refresh}
           />
@@ -184,10 +187,12 @@ function Contributor(props: {
   committed: boolean;
   delivered: boolean;
   funded: boolean;
+  /** The spec's per-report limit, in UTF-8 bytes, when it sets one. */
+  maxReportBytes?: number;
   near: Near;
   onChange: () => Promise<void>;
 }) {
-  const { address, account, params, committed, delivered, funded, near, onChange } = props;
+  const { address, account, params, committed, delivered, funded, maxReportBytes, near, onChange } = props;
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string>();
   const proofKey = `extents:delivery:${address}:${account}`;
@@ -200,6 +205,8 @@ function Contributor(props: {
   });
   const [report, setReport] = useState<string>(typeof saved.text === "string" ? saved.text : "");
   const [deliveryTx, setDeliveryTx] = useState<string>(typeof saved.delivery_tx === "string" ? saved.delivery_tx : "");
+  const reportBytes = utf8Bytes(report);
+  const overLimit = maxReportBytes !== undefined && reportBytes > maxReportBytes;
 
   const publishProof = async (tx: string) => {
     if (deliveryHash(await finalStatus(near, tx, account), address, account) !== reportHash(report))
@@ -290,10 +297,16 @@ function Contributor(props: {
             />
           </label>
           <Checklist address={address} report={report} />
+          {overLimit && (
+            <p role="alert" className="text-alert">
+              Your report is {reportBytes.toLocaleString()} bytes; the terms allow {maxReportBytes!.toLocaleString()}. A longer report fails
+              the judged criteria, so shorten it before you deliver.
+            </p>
+          )}
           <button
             type="button"
-            aria-disabled={busy || !report.trim() || undefined}
-            onClick={() => !busy && report.trim() && void deliver()}
+            aria-disabled={busy || !report.trim() || overLimit || undefined}
+            onClick={() => !busy && report.trim() && !overLimit && void deliver()}
             className="self-start rounded-full bg-action px-5 py-2.5 font-display font-semibold text-action-ink aria-disabled:opacity-60"
           >
             {busy ? "Signing…" : "Deliver"}
@@ -434,6 +447,7 @@ function Checklist({ address, report }: { address: string; report: string }) {
 interface Evaluation {
   summary: CheckSummary;
   delivered: Delivered[];
+  missing?: string[];
   review?: Review;
 }
 
@@ -448,13 +462,15 @@ function Evaluator(props: {
   params: Params;
   spec: Spec;
   dao?: Dao;
-  allCommitted: boolean;
+  allDelivered: boolean;
   effectiveDeadline: string;
   deliveredBy: string[];
+  /** Who holds each slot, in contributor order. */
+  slots: string[];
   near: Near;
   onChange: () => Promise<void>;
 }) {
-  const { address, account, params, spec, dao, allCommitted, effectiveDeadline, deliveredBy, near, onChange } = props;
+  const { address, account, params, spec, dao, allDelivered, effectiveDeadline, deliveredBy, slots, near, onChange } = props;
   const { rows, result, running, error, run } = useCheckRun<Evaluation>("/api/evaluate");
   const [busy, setBusy] = useState(false);
   /** Each exact attestation keeps its own filing result, including while another review is checked or signed. */
@@ -474,6 +490,10 @@ function Evaluator(props: {
         review.deliverables.some((d) => !delivered.some((r) => r.contributor === d.contributor && r.delivery_hash === d.sha256))
       )
         throw new Error("The review does not name the verified reports");
+      // every slot without a judged report must be named missing, and nothing else: checked here, not taken from the server
+      const missing = slots.filter((s) => !delivered.some((d) => d.contributor === s));
+      if ((review.missing ?? []).join() !== missing.join())
+        throw new Error("The review's missing reports aren't the slots without a verified report");
       key = filingKey(params.evaluator, attestProposal(address, params, attestationOf(review)));
     }
   } catch (e) {
@@ -488,8 +508,8 @@ function Evaluator(props: {
   const expired = timestampNanos(effectiveDeadline) < BigInt(Date.now()) * 1_000_000n;
   const blocked = expired
     ? "The deadline has passed, so the evaluator can no longer attest. Anyone can now close the objective."
-    : review?.verdict === "achieved" && !allCommitted
-      ? "Not every contributor committed, so the contract accepts only a failed verdict."
+    : review?.verdict === "achieved" && !allDelivered
+      ? "Not every contributor has delivered, so the contract accepts only a failed verdict."
       : undefined;
 
   const attest = async () => {
@@ -546,11 +566,17 @@ function Evaluator(props: {
       <p role="status" aria-live="polite">
         {summary &&
           (review
-            ? `The results support ${review.verdict}: ${summary.passed} passed, ${summary.failed} failed. Judged ${result?.delivered
-                .map((d) => d.contributor)
-                .join(", ")}.`
+            ? `The results support ${review.verdict}: ${summary.passed} passed, ${summary.failed} failed.${
+                result?.delivered.length ? ` Judged ${result.delivered.map((d) => d.contributor).join(", ")}.` : ""
+              }`
             : `${summary.skipped} ${summary.skipped === 1 ? "check" : "checks"} couldn't run, so the results support no verdict yet. Check again.`)}
       </p>
+      {review?.missing && !blocked && (
+        <p role="alert" className="text-alert">
+          No verified report from {review.missing.join(", ")}, so this review is failed. Attesting it now ends the objective before{" "}
+          {review.missing.length === 1 ? "that contributor" : "those contributors"} can still deliver.
+        </p>
+      )}
       {review && !blocked && proposed === undefined && (
         <>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">

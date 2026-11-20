@@ -59,6 +59,8 @@ export const spec = z.strictObject({
   criteria: z.array(criterion),
   /** SHA-256 of the evaluator program, for an attested evaluator; a review must record the same build. */
   evaluator_build: hash.optional(),
+  /** UTF-8 bytes allowed per contributor report; required, and positive, whenever a criterion is `llm_judge`. */
+  max_report_bytes: u32.optional(),
 });
 
 export const outcome = z.enum(["pass", "fail", "skipped"]);
@@ -70,6 +72,8 @@ export const review = z.strictObject({
   spec_hash: hash,
   evaluator_build: hash.optional(),
   deliverables: z.array(z.strictObject({ contributor: accountId, sha256: hash })),
+  /** Slots whose report was never published: judged as failed, never as achieved. Omitted when empty. */
+  missing: z.array(accountId).optional(),
   results: z.array(
     z.strictObject({
       criterion_id: z.string(),
@@ -158,6 +162,9 @@ export function validateSpec(s: Spec): void {
     const reason = checkProblem(c.check);
     if (reason) fail(`criterion ${c.id}: ${reason}`);
   }
+  // a judged report must fit what the judge reads, so the spec bounds it up front
+  if (s.max_report_bytes === 0 || (s.max_report_bytes === undefined && judges > 0))
+    fail("a spec with an llm_judge needs a positive max_report_bytes");
 }
 
 /** Capabilities of this app's text-report evaluator, distinct from the protocol format. */
@@ -282,6 +289,10 @@ export function validateReview(r: Review, s: Spec): void {
     if (contributors.has(d.contributor)) fail(`two deliverables from ${d.contributor}`);
     contributors.add(d.contributor);
   }
+  for (const m of r.missing ?? []) {
+    if (contributors.has(m)) fail(`${m} is listed as missing twice, or as both missing and delivered`);
+    contributors.add(m);
+  }
 
   const outcomes = new Map<string, z.infer<typeof outcome>>();
   for (const res of r.results) {
@@ -305,8 +316,10 @@ export function validateReview(r: Review, s: Spec): void {
   validateCalls(r, s, outcomes);
 
   const all = [...outcomes.values()];
-  const failed = all.includes("fail");
+  const unjudged = (r.missing ?? []).length > 0;
+  const failed = unjudged || all.includes("fail");
+  if (r.verdict === "achieved" && unjudged) fail("verdict achieved contradicts the results: a contributor's report is missing");
   if (r.verdict === "achieved" && !all.every((o) => o === "pass"))
     fail("verdict achieved contradicts the results: not every criterion passed");
-  if (r.verdict === "failed" && !failed) fail("verdict failed contradicts the results: no criterion failed");
+  if (r.verdict === "failed" && !failed) fail("verdict failed contradicts the results: no criterion failed and no report is missing");
 }

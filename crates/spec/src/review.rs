@@ -26,6 +26,11 @@ pub struct Review {
     /// What each contributor delivered, by hash. The deliverables stay off
     /// chain.
     pub deliverables: Vec<Deliverable>,
+    /// Contributors whose delivery is on chain but whose report was never
+    /// published, so it could not be judged. Any supports `failed`; `achieved`
+    /// needs none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<AccountId>,
     /// One per criterion of the spec.
     pub results: Vec<CriterionResult>,
     pub llm_calls: Vec<LlmCall>,
@@ -72,8 +77,12 @@ pub struct Evidence {
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
     Pass,
+    /// Failed, including when the contributor's side made it uncheckable: a
+    /// report over `max_report_bytes`, or a cited host answering with an
+    /// error. An evaluator records those as fail after a retry.
     Fail,
-    /// Could not be checked, e.g. a judge was unavailable. Never part of an
+    /// Could not be checked because of the evaluator's side: its model or its
+    /// network was unavailable, or a host never answered. Never part of an
     /// `achieved` verdict, which needs every criterion to pass.
     Skipped,
 }
@@ -146,6 +155,11 @@ impl Review {
                 return Err(Error::DuplicateContributor(d.contributor.to_string()));
             }
         }
+        for m in &self.missing {
+            if !contributors.insert(m) {
+                return Err(Error::InvalidMissing(m.to_string()));
+            }
+        }
 
         let mut outcomes = BTreeMap::new();
         for r in &self.results {
@@ -183,16 +197,21 @@ impl Review {
 
         self.validate_calls(spec, &outcomes)?;
 
-        let failed = outcomes.values().any(|o| *o == Outcome::Fail);
+        let unjudged = !self.missing.is_empty();
+        let failed = unjudged || outcomes.values().any(|o| *o == Outcome::Fail);
         let passed = outcomes.values().all(|o| *o == Outcome::Pass);
-        match (self.verdict, failed, passed) {
-            (Verdict::Achieved, _, false) => Err(Error::VerdictMismatch {
+        match self.verdict {
+            Verdict::Achieved if unjudged => Err(Error::VerdictMismatch {
+                verdict: "achieved",
+                reason: "a contributor's report is missing",
+            }),
+            Verdict::Achieved if !passed => Err(Error::VerdictMismatch {
                 verdict: "achieved",
                 reason: "not every criterion passed",
             }),
-            (Verdict::Failed, false, _) => Err(Error::VerdictMismatch {
+            Verdict::Failed if !failed => Err(Error::VerdictMismatch {
                 verdict: "failed",
-                reason: "no criterion failed",
+                reason: "no criterion failed and no report is missing",
             }),
             _ => Ok(()),
         }

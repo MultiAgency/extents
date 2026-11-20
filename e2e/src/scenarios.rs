@@ -122,11 +122,11 @@ impl Run {
 
 const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 
-/// Time to deploy, fund, commit and attest before the deadline. Each
-/// contributor commits in a separate transaction, awaited to finality, with
-/// balance snapshots before and after.
+/// Time to deploy, fund, commit, deliver and attest before the deadline.
+/// Each contributor commits and delivers in separate transactions, each
+/// awaited to finality, with balance snapshots before and after.
 const DEADLINE_BASE: Duration = Duration::from_secs(110);
-const DEADLINE_PER_CONTRIBUTOR: Duration = Duration::from_secs(20);
+const DEADLINE_PER_CONTRIBUTOR: Duration = Duration::from_secs(40);
 /// Block timestamps lag wall-clock time; wait this long past the deadline.
 const DEADLINE_SLACK: Duration = Duration::from_secs(10);
 
@@ -136,8 +136,8 @@ const AMOUNT: u128 = 1_000_009;
 
 /// Time for a DAO to fund and attest, each by two votes (and, for the
 /// intent path, an MPC signature, about 30 s on testnet), around two
-/// commits.
-const DAO_DEADLINE_IN: Duration = Duration::from_mins(6);
+/// commits and two deliveries.
+const DAO_DEADLINE_IN: Duration = Duration::from_mins(7);
 
 /// NEAR offered as a `StateInit` deposit (which is refunded), then
 /// transferred to the expired instance to show where deletion sends it.
@@ -379,6 +379,19 @@ impl Instance<'_, '_> {
         let call = self.objective.commit();
         self.call(&format!("ob_commit by {contributor}"), contributor, &call)
             .await
+    }
+
+    /// Commits and delivers as `contributor`, as an achieved verdict
+    /// requires of every slot.
+    async fn take_part(&mut self, contributor: &AccountId) -> Result<()> {
+        let committed = self.commit(contributor).await?;
+        let delivered = self.deliver(contributor).await?;
+        self.run.check(
+            &format!("{contributor} committed and delivered"),
+            committed.ok && delivered.ok && delivered.events_of("delivered").count() == 1,
+            format!("tx {}, tx {}", committed.hash, delivered.hash),
+        );
+        Ok(())
     }
 
     async fn deliver(&mut self, contributor: &AccountId) -> Result<Tx> {
@@ -714,8 +727,8 @@ async fn deposit(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     );
 
     ob.fund(AMOUNT).await?;
-    ob.commit(c0).await?;
-    ob.commit(c1).await?;
+    ob.take_part(c0).await?;
+    ob.take_part(c1).await?;
 
     // nearcore 2.14 (`one_yocto_on_promise`) does not deduct a 1 yoctoNEAR
     // promise deposit from a contract whose balance is zero.
@@ -765,14 +778,15 @@ async fn achieved(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
         event_summary(&tx, "committed"),
     );
 
-    // Not committed: an achieved verdict with one of two commitments.
+    // Not delivered: an achieved verdict with one of two commitments and
+    // no deliveries.
     let attestation = ob.review(Verdict::Achieved)?;
     let review = attestation.review_hash.unwrap_or_default();
     let tx = ob.attest(attestation).await?;
     let error = tx.error.clone().unwrap_or_default();
     ob.run.check(
-        "not committed",
-        !tx.ok && error.contains("not all contributors have committed"),
+        "not delivered",
+        !tx.ok && error.contains("not all contributors have delivered"),
         format!("tx {}: {error}", tx.hash),
     );
 
@@ -782,6 +796,14 @@ async fn achieved(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
         tx.events_of("committed").count() == 1,
         event_summary(&tx, "committed"),
     );
+    for c in [c0, c1] {
+        let tx = ob.deliver(c).await?;
+        ob.run.check(
+            "delivered event",
+            tx.events_of("delivered").count() == 1,
+            event_summary(&tx, "delivered"),
+        );
+    }
 
     let before = ob.balances().await?;
     let tx = ob.attest(attestation).await?;
@@ -943,6 +965,20 @@ async fn auth_call(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
             tx.ok && committed,
             format!("tx {}: {}", tx.hash, event_summary(&tx, "committed")),
         );
+        let hash = documents::deliverable(c.as_str());
+        let intent = ob.objective.auth_call(Action::Deliver(Delivery { hash }));
+        let signed = intent::sign(ob.ctx.chain, c, &[intent]).await?;
+        let tx = ob
+            .execute_intents(&format!("auth_call deliver by {c}"), &[signed])
+            .await?;
+        let delivered = tx
+            .events_of("delivered")
+            .any(|e| e["data"]["contributor"] == c.as_str());
+        ob.run.check(
+            &format!("{c} delivered via auth_call"),
+            tx.ok && delivered,
+            format!("tx {}: {}", tx.hash, event_summary(&tx, "delivered")),
+        );
     }
 
     let before = ob.balances().await?;
@@ -962,7 +998,7 @@ async fn max(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     let mut ob = ctx.deploy(run, params, NearToken::ZERO).await?;
     ob.fund(AMOUNT).await?;
     for c in contributors {
-        ob.commit(c).await?;
+        ob.take_part(c).await?;
     }
 
     let before = ob.balances().await?;
@@ -988,7 +1024,7 @@ async fn max_auth_call(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     let mut ob = ctx.deploy(run, params, NearToken::ZERO).await?;
     ob.fund(AMOUNT).await?;
     for c in contributors {
-        ob.commit(c).await?;
+        ob.take_part(c).await?;
     }
     let evaluator = ob.ctx.accounts.evaluator.clone();
     ob.register_keys(&[&evaluator]).await?;
@@ -1135,12 +1171,7 @@ async fn dao_objective(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     }
 
     for contributor in [c2, c3] {
-        let tx = ob.commit(contributor).await?;
-        ob.run.check(
-            "committed event",
-            tx.events_of("committed").count() == 1,
-            event_summary(&tx, "committed"),
-        );
+        ob.take_part(contributor).await?;
     }
 
     // Attest: the DAO calls `ob_attest` itself, by proposal.
@@ -1205,12 +1236,7 @@ async fn dao_intent_objective(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     }
 
     for contributor in [c2, c3] {
-        let tx = ob.commit(contributor).await?;
-        ob.run.check(
-            "committed event",
-            tx.events_of("committed").count() == 1,
-            event_summary(&tx, "committed"),
-        );
+        ob.take_part(contributor).await?;
     }
 
     // Attest: an `auth_call` intent, so the objective sees the DAO's

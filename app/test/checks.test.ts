@@ -196,3 +196,20 @@ describe("checks", () => {
     expect(fetched).toEqual([]);
   });
 });
+
+test("a report over the spec's limit fails judged criteria without asking a model", async () => {
+  let asked = 0;
+  const c = { id: "u", description: "Useful", check: { kind: "llm_judge", question: "Useful?", models: ["m"] } } as never;
+  const s = { v: 1, statement: "s", criteria: [c], max_report_bytes: 10 } as never;
+  const r = await runCheck(
+    c,
+    s,
+    { text: "x".repeat(11), oversized: ["organizer.testnet"] },
+    {
+      fetch,
+      judge: async () => (asked++, { answer: true, detail: "fine" }),
+    },
+  );
+  expect(r).toMatchObject({ outcome: "fail", detail: "over the spec's 10-byte report limit: organizer.testnet" });
+  expect(asked).toBe(0);
+});

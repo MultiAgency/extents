@@ -111,7 +111,7 @@ pub struct Params {
     pub evaluator: AccountId,
 
     /// Contributors and their shares of the payout. Shares must sum to
-    /// exactly 100%. Each must commit before an achieved verdict.
+    /// exactly 100%. Each slot must deliver before an achieved verdict.
     pub contributors: BTreeMap<AccountId, Pips>,
 
     /// A backup for some contributors' slots: after `commit_by`, if the

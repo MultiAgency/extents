@@ -16,6 +16,8 @@ export interface Deliverable {
   text: string;
   /** Delivered files by relative path, for `files` criteria. */
   files?: Record<string, string>;
+  /** Whose reports exceed the spec's `max_report_bytes`: judged criteria fail on them, as the contributors agreed. */
+  oversized?: string[];
 }
 
 export interface CheckDeps {
@@ -134,6 +136,16 @@ const result = (c: Criterion, outcome: CheckResult["outcome"], detail: string, e
   evidence,
 });
 
+/**
+ * Skipped because something the contributor cited couldn't be reached. The
+ * evaluator's retry rule may make it a fail: the contributor answers for the
+ * hosts it cites.
+ */
+const unreachable = (c: Criterion, detail: string, evidence: CheckResult["evidence"] = []): CheckResult => ({
+  ...result(c, "skipped", detail, evidence),
+  unavailable: true,
+});
+
 export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: CheckDeps): Promise<CheckResult> {
   const check = c.check;
   switch (check.kind) {
@@ -185,7 +197,7 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
       if (!url) return result(c, "fail", `no "${check.label}: <url>" line`);
       const page = await load(deps, url);
       if (typeof page === "string") return result(c, "fail", page);
-      if ("unavailable" in page) return result(c, "skipped", page.unavailable);
+      if ("unavailable" in page) return unreachable(c, page.unavailable);
       const evidence = [{ url: page.url, sha256: page.sha256 }];
       if (!page.ok) return result(c, "fail", `${url} did not load`, evidence);
       if (check.must_contain && !page.text.toLowerCase().includes(check.must_contain.toLowerCase()))
@@ -200,12 +212,9 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
       const pages = fetched.filter((p): p is Fetched => typeof p !== "string" && "ok" in p && p.ok);
       const evidence = pages.map((p) => ({ url: p.url, sha256: p.sha256 }));
       if (pages.length < check.min)
-        return result(
-          c,
-          unavailable ? "skipped" : "fail",
-          `${pages.length} of the needed ${check.min} cited links load${unavailable ? "; some evidence is unavailable" : ""}`,
-          evidence,
-        );
+        return unavailable
+          ? unreachable(c, `${pages.length} of the needed ${check.min} cited links load; some evidence is unavailable`, evidence)
+          : result(c, "fail", `${pages.length} of the needed ${check.min} cited links load`, evidence);
       if (check.figures) {
         const figures = spec.criteria.flatMap((k) => {
           if (k.check.kind !== "numeric_match") return [];
@@ -217,7 +226,9 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
           .filter((f) => f.value === undefined || !numbers.some((page) => page.has(f.value!)))
           .map((f) => f.raw ?? f.label);
         if (unsupported.length)
-          return result(c, unavailable ? "skipped" : "fail", `not found on available cited pages: ${unsupported.join(", ")}`, evidence);
+          return unavailable
+            ? unreachable(c, `not found on available cited pages: ${unsupported.join(", ")}`, evidence)
+            : result(c, "fail", `not found on available cited pages: ${unsupported.join(", ")}`, evidence);
       }
       return result(c, "pass", `${pages.length} cited link${pages.length === 1 ? "" : "s"} load`, evidence);
     }
@@ -233,14 +244,13 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
       const evidence = loaded.map((p) => ({ url: p.url, sha256: p.sha256 }));
       return loaded.length >= check.min
         ? result(c, "pass", `${loaded.length} ${check.kinds.join(" or ")} item${loaded.length === 1 ? "" : "s"} load`, evidence)
-        : result(
-            c,
-            unavailable ? "skipped" : "fail",
-            `${loaded.length} of the needed ${check.min} ${check.kinds.join(" or ")} items load`,
-            evidence,
-          );
+        : unavailable
+          ? unreachable(c, `${loaded.length} of the needed ${check.min} ${check.kinds.join(" or ")} items load`, evidence)
+          : result(c, "fail", `${loaded.length} of the needed ${check.min} ${check.kinds.join(" or ")} items load`, evidence);
     }
     case "llm_judge": {
+      if (d.oversized?.length)
+        return result(c, "fail", `over the spec's ${spec.max_report_bytes}-byte report limit: ${d.oversized.join(", ")}`);
       if (!deps.judge) return result(c, "skipped", "judged by the evaluator's model, not in this check");
       // every named model answers once; the outcome is their majority
       const judge = deps.judge;

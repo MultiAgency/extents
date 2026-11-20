@@ -13,6 +13,22 @@ const JUDGE_SYSTEM =
 const JUDGE_MAX_TOKENS = 4096;
 
 /** The text judged: one contributor's deliverable as is, or several, each under a `## <contributor>` heading. */
+/** The most judged text one call carries, in UTF-8 bytes. Longer text is never truncated: the judgement fails. */
+export const MAX_JUDGED_BYTES = 40_000;
+
+/** At most, per report in judged text: a `## <contributor>` heading (account ids are up to 64 bytes) and its separators. */
+const HEADING_BYTES = 3 + 64 + 2 + 2;
+
+export const utf8Bytes = (text: string): number => new TextEncoder().encode(text).byteLength;
+
+/** The judged text's size at worst: every contributor's report at `maxReportBytes`. */
+export const judgedBytesBound = (contributors: number, maxReportBytes: number): number =>
+  contributors === 1 ? maxReportBytes : contributors * (maxReportBytes + HEADING_BYTES);
+
+/** The largest `max_report_bytes` whose judged text still fits one call. */
+export const maxReportBytesFor = (contributors: number): number =>
+  contributors === 1 ? MAX_JUDGED_BYTES : Math.floor(MAX_JUDGED_BYTES / contributors) - HEADING_BYTES;
+
 export function judgedText(deliverables: { contributor: string; text: string }[]): string {
   return deliverables.length === 1 ? deliverables[0]!.text : deliverables.map((d) => `## ${d.contributor}\n\n${d.text}`).join("\n\n");
 }

@@ -12,6 +12,8 @@ export type LlmCall = Review["llm_calls"][number];
 export type CheckResult = Review["results"][number] & {
   /** The model calls behind an `llm_judge` result, one per model, with their receipts. */
   calls?: LlmCall[];
+  /** Skipped because something the contributor cited couldn't be reached: the retry rule may turn it into a fail. */
+  unavailable?: true;
 };
 
 export interface CheckSummary {
@@ -47,8 +49,15 @@ export const reportHash = (text: string): string => sha256Hex(text);
  * The review of these results, in spec order, or `undefined` while they
  * support no verdict. Throws if the review would not validate.
  */
-export function buildReview(objective: string, spec: Spec, delivered: Delivered[], results: CheckResult[]): Review | undefined {
-  const { verdict } = summarize(results);
+export function buildReview(
+  objective: string,
+  spec: Spec,
+  delivered: Delivered[],
+  results: CheckResult[],
+  missing: string[] = [],
+): Review | undefined {
+  // a slot with no report fails the objective on its own; otherwise the results decide
+  const verdict = missing.length ? "failed" : summarize(results).verdict;
   if (verdict === "undecided") return undefined;
   const byId = new Map(results.map((r) => [r.criterion_id, r]));
   const ordered = spec.criteria.flatMap((c) => byId.get(c.id) ?? []);
@@ -57,6 +66,8 @@ export function buildReview(objective: string, spec: Spec, delivered: Delivered[
     objective,
     spec_hash: specHash(spec),
     deliverables: delivered.map((d) => ({ contributor: d.contributor, sha256: reportHash(d.text) })),
+    // omitted when empty: a document has one canonical form
+    ...(missing.length ? { missing } : {}),
     results: ordered.map(({ criterion_id, outcome, detail, evidence }) => ({ criterion_id, outcome, detail, evidence })),
     llm_calls: ordered.flatMap((r) => r.calls ?? []),
     verdict,

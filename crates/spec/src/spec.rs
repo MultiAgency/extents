@@ -16,6 +16,11 @@ pub struct Spec {
     /// The objective in words.
     pub statement: String,
     pub criteria: Vec<Criterion>,
+    /// The most UTF-8 bytes one contributor's report may have. Required when
+    /// any criterion is an `llm_judge`, whose model can read only so much; a
+    /// longer report fails, as contributors agreed by committing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_report_bytes: Option<u32>,
     /// SHA-256 of the evaluator program, for an attested evaluator. A review
     /// of this spec must record the same build.
     #[serde_as(as = "Option<Hex>")]
@@ -137,7 +142,11 @@ impl Spec {
             }
             criterion.validate()?;
         }
-        Ok(())
+        match self.max_report_bytes {
+            Some(0) => Err(Error::NoReportLimit),
+            None if judges > 0 => Err(Error::NoReportLimit),
+            _ => Ok(()),
+        }
     }
 
     pub fn criterion(&self, id: &str) -> Option<&Criterion> {

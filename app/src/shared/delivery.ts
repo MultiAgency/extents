@@ -22,13 +22,11 @@ export function holders(params: Params, taken = 0): string[] {
 export const deliveredBy = (params: Params, state?: { delivered?: number; taken?: number }): string[] =>
   holders(params, state?.taken).filter((_, i) => ((state?.delivered ?? 0) >> i) & 1);
 
+/** Each report is from a slot whose delivery is on chain, at most once, with the hash that delivery committed. */
 export function verifyReports(expected: string[], delivered: Delivered[]): void {
   if (
-    delivered.length !== expected.length ||
     new Set(delivered.map((d) => d.contributor)).size !== delivered.length ||
     delivered.some((d) => !expected.includes(d.contributor) || d.delivery_hash !== reportHash(d.text))
   )
-    throw new Error(
-      "Every recorded delivery needs its exact report and a verified on-chain hash. Missing or changed reports cannot be evaluated.",
-    );
+    throw new Error("Every judged report must be the exact one its on-chain delivery committed, once per slot.");
 }

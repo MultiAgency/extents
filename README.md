@@ -28,7 +28,7 @@ an evaluator attests that the objective was achieved.
 | Objective      | `spec_hash` commits to the off-chain [spec](#extents-spec) the evaluator judges against    |
 | Authority      | `evaluator` alone resolves, once, before the last moment to attest; it cannot also be a contributor |
 | Resources      | a single NEP-245 token on the Verifier, funded by `sponsor` via `mt_transfer_call`                  |
-| Commitment     | each contributor commits with `ob_commit`, or its named backup after `commit_by`; an achieved verdict needs every slot filled |
+| Commitment     | each contributor commits with `ob_commit`, or its named backup after `commit_by`; an achieved verdict needs every slot delivered |
 | Delivery       | each committed contributor records what it delivered, by hash, with `ob_deliver`                    |
 | Accountability | payout follows the verdict; without one, [`acceptance_window_secs`](#silence) decides               |
 
@@ -227,6 +227,8 @@ verdict can be checked by anyone holding the spec and the deliverables.
   script. A spec has at most two `llm_judge` criteria and at least one other,
   so a model's answer is never the only gate. Each `llm_judge`
   names its models, one or three, and its outcome is their majority answer.
+  A spec with an `llm_judge` states `max_report_bytes`, the most UTF-8 bytes
+  one contributor's report may have; a longer report fails.
   A spec may pin `evaluator_build`, the hash of an attested evaluator
   program. Contributors see `spec_hash` in `Params` before they commit, so
   they agree to be judged against exactly these criteria.
@@ -244,9 +246,13 @@ verdict can be checked by anyone holding the spec and the deliverables.
   needs one call per named model and must follow their majority. A review
   of a spec that pins `evaluator_build` records the same build. A review
   validates only if its verdict follows from its results: `achieved` only when
-  every criterion passed, `failed` only when at least one failed. Results with
-  something skipped and nothing failed support neither, so the evaluator
-  doesn't attest. A consumer
+  every criterion passed and no report is missing, `failed` only when at least
+  one criterion failed or a contributor's report was never published (listed
+  in `missing`). `skipped` is for the evaluator's own side failing (its model
+  or network, or a host that never answered); what the contributor controls,
+  such as a report over its limit or a cited host answering with an error,
+  fails after a retry. Results with something skipped and nothing failed or
+  missing support neither, so the evaluator doesn't attest. A consumer
   checks `objective` against the account the verdict was attested on, so a
   review cannot be reused for another objective with the same spec and
   contributors.
@@ -275,7 +281,7 @@ Established, by unit tests under `near-sdk` mocking (`cargo test`):
 - param validation, share rounding (the remainder goes to the sponsor), and
   rejection of tampered params
 - commitment only by a listed contributor, once, before a verdict or the
-  deadline; an achieved verdict only once all have committed
+  deadline; an achieved verdict only once every slot has delivered
 - funding only by the sponsor, only in the configured token, only before a
   verdict or the deadline
 - one verdict, only from the evaluator, only before the deadline; expiry only

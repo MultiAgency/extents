@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import { finalOutcome } from "../src/web/transaction-outcome.ts";
 import { classifyFund } from "../src/shared/fund-outcome.ts";
 import { buildObjective, launchKey, proposal } from "../src/shared/objective.ts";
+import { validateSpec } from "../src/shared/spec.ts";
 import { timestampNanos, validateParams, type Params } from "../src/shared/params.ts";
 
 const P = proposal.parse({
@@ -181,4 +182,43 @@ describe("deadline range", () => {
     "accepts the edge %s",
     (deadline) => expect(validateParams({ ...p, deadline })).toBeUndefined(),
   );
+});
+
+describe("max_report_bytes against the judge's input", () => {
+  const judged = (max_report_bytes: number, contributors: Record<string, number>) =>
+    proposal.parse({
+      spec: {
+        v: 1,
+        statement: "A meetup.",
+        criteria: [
+          { id: "n", description: "Attendance", check: { kind: "numeric_match", label: "Attendees", min: 30 } },
+          { id: "u", description: "Useful", check: { kind: "llm_judge", question: "Useful?", models: ["m"] } },
+        ],
+        max_report_bytes,
+      },
+      contributors,
+      evaluator: "agency.testnet",
+      deadline: "2027-03-01T00:00:00Z",
+      amount: "5",
+    });
+  const build = (p: ReturnType<typeof judged>) => () =>
+    buildObjective(
+      p,
+      "customer.testnet",
+      "ab".repeat(32),
+      "FS91WimvUhXCC6ij7YNwSca6xgT9iER4Qb3LTxqUVkwa",
+      Date.parse("2026-11-20T00:00:00Z"),
+    );
+  const four = { "a.testnet": 25, "b.testnet": 25, "c.testnet": 25, "d.testnet": 25 };
+
+  test("refuses a limit whose reports can't all fit one judgement, and names the largest that can", () =>
+    expect(build(judged(20_000, four))).toThrow(/use at most 9929/));
+
+  test("accepts the largest limit that fits, and a single contributor up to the whole input", () => {
+    expect(build(judged(9_929, four))).not.toThrow();
+    expect(build(judged(40_000, { "a.testnet": 100 }))).not.toThrow();
+  });
+
+  test("a judged spec without a limit is refused by the format itself", () =>
+    expect(() => validateSpec({ ...judged(8_000, four).spec, max_report_bytes: undefined })).toThrow(/needs a positive max_report_bytes/));
 });

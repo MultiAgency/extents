@@ -78,7 +78,7 @@ async fn implicit_accounts_sponsor_and_evaluate() -> Result<()> {
     );
 
     for contributor in &env.contributors {
-        assert!(env.commit(contributor, &objective).await?.ok());
+        env.take_part(contributor, &objective).await?;
     }
     let attest = send_call(&evaluator, &objective.attest(&ACHIEVED)).await?;
     assert!(attest.ok(), "{}", attest.error());
@@ -124,7 +124,7 @@ async fn dao_sponsors_and_evaluates_by_proposal() -> Result<()> {
     assert_eq!(env.mt_balance(objective.account()).await?, AMOUNT);
 
     for contributor in &env.contributors[2..] {
-        assert!(env.commit(contributor, &objective).await?.ok());
+        env.take_part(contributor, &objective).await?;
     }
     let attest = env
         .dao_call(&dao, &council, &objective.attest(&ACHIEVED))
@@ -158,7 +158,7 @@ async fn dao_attests_for_ten_contributors_by_proposal() -> Result<()> {
     let objective = env.deploy(&params).await?;
     assert!(env.fund(&objective, AMOUNT).await?.ok());
     for contributor in &env.contributors[2..] {
-        assert!(env.commit(contributor, &objective).await?.ok());
+        env.take_part(contributor, &objective).await?;
     }
 
     let sponsor_before = env.mt_balance(&env.sponsor.id).await?;
