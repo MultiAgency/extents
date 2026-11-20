@@ -9,16 +9,17 @@
 //! The sandbox runs in Docker (`near-kit-sandbox`, nearcore 2.14).
 
 use std::{
-    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use anyhow::{Context, Result, bail, ensure};
+pub use extents_client::outcome::Receipt;
 use extents_client::{
     Payload,
     objective::{self as client, Call, Objective, Vote},
+    outcome,
 };
 use extents_objective::{
     Attestation, Delivery, Params, Pips, Timestamp, auth_call::Action, token_id::TokenId,
@@ -26,7 +27,7 @@ use extents_objective::{
 use near_kit::{
     AccountId, Gas, Near, NearToken,
     protocol::PublishMode,
-    rpc::{ActionView, BlockReference, FinalExecutionOutcome, Finality, ReceiptContent},
+    rpc::{BlockReference, FinalExecutionOutcome, Finality},
     signer::{InMemorySigner, SecretKey},
     transaction::{Final, TransactionBuilder},
 };
@@ -130,82 +131,14 @@ pub struct Outcome {
     pub events: Vec<Value>,
 }
 
-/// One receipt of a transaction.
-#[derive(Debug, Clone)]
-pub struct Receipt {
-    pub predecessor: AccountId,
-    pub executor: AccountId,
-    /// The function called, or `None` for other actions.
-    pub method: Option<String>,
-    /// NEAR attached to the function call, in yocto.
-    pub attached: u128,
-    /// Gas attached to the function call.
-    pub gas: Gas,
-    /// NEAR moved by a `Transfer` action, in yocto.
-    pub transfer: Option<u128>,
-    pub burnt: Gas,
-    pub ok: bool,
-}
-
 impl Outcome {
     /// Expects `inner` to come from `tx_status`, which includes receipt
     /// bodies.
     fn new(inner: FinalExecutionOutcome) -> Self {
-        let bodies: HashMap<_, _> = inner.receipts.iter().map(|r| (r.receipt_id, r)).collect();
-        let receipts = inner
-            .receipts_outcome
-            .iter()
-            .filter_map(|o| {
-                let body = bodies.get(&o.id)?;
-                let ReceiptContent::Action(action) = &body.receipt else {
-                    return None;
-                };
-                let mut receipt = Receipt {
-                    predecessor: body.predecessor_id.clone(),
-                    executor: o.outcome.executor_id.clone(),
-                    method: None,
-                    attached: 0,
-                    gas: Gas::from_gas(0),
-                    transfer: None,
-                    burnt: o.outcome.gas_burnt,
-                    ok: o.outcome.status.is_success(),
-                };
-                for action in &action.actions {
-                    match action {
-                        ActionView::FunctionCall {
-                            method_name,
-                            gas,
-                            deposit,
-                            ..
-                        } => {
-                            receipt.method = Some(method_name.clone());
-                            receipt.attached = deposit.as_yoctonear();
-                            receipt.gas = *gas;
-                        }
-                        ActionView::Transfer { deposit } => {
-                            receipt.transfer = Some(deposit.as_yoctonear());
-                        }
-                        _ => {}
-                    }
-                }
-                Some(receipt)
-            })
-            .collect();
-        // A failed receipt keeps its logs, though its state changes are
-        // reverted: only successful receipts' events happened.
-        let events = inner
-            .receipts_outcome
-            .iter()
-            .filter(|r| r.outcome.status.is_success())
-            .flat_map(|r| &r.outcome.logs)
-            .filter_map(|log| log.strip_prefix("EVENT_JSON:"))
-            .filter_map(|json| serde_json::from_str::<Value>(json).ok())
-            .filter(|e| e["standard"] == "extents-objective")
-            .collect();
         Self {
+            receipts: outcome::receipts(&inner),
+            events: outcome::events(&inner),
             inner,
-            receipts,
-            events,
         }
     }
 

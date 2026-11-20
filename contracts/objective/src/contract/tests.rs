@@ -588,6 +588,116 @@ fn only_evaluator_attests_once_before_deadline() {
     ));
 }
 
+/// The sponsor may concede: once every slot has delivered, it releases its
+/// own funding to the contributors without the evaluator. It is recorded as
+/// `released`, never as the evaluator's verdict.
+#[test]
+fn sponsor_releases_once_every_slot_delivered() {
+    let p = params(&[700_000, 300_000], 3600);
+    let mut contract = deploy(&p);
+    fund(&mut contract, &p, "sponsor.test", 1_001);
+    commit_all(&mut contract, &p);
+
+    call_from("sponsor.test", vec![]);
+    assert!(matches!(
+        contract.attest(&id("sponsor.test"), &p, Verdict::Achieved.into()),
+        Err(Error::NotDelivered)
+    ));
+
+    deliver_all(&mut contract, &p);
+    call_from("sponsor.test", vec![]);
+    assert!(matches!(
+        contract.ob_attest(p.clone(), Verdict::Achieved.into()),
+        PromiseOrValue::Promise(_)
+    ));
+    assert_eq!(
+        event("resolved"),
+        serde_json::json!({
+            "outcome": "released",
+            "amounts": {"c0.test": "700", "c1.test": "300", "sponsor.test": "1"}
+        })
+    );
+    assert_eq!(
+        contract.ob_view().no_verify().outcome,
+        Some(Outcome::Released)
+    );
+
+    // one outcome: the evaluator cannot overturn a release
+    call_from("evaluator.test", vec![]);
+    assert!(matches!(
+        contract.attest(&id("evaluator.test"), &p, Verdict::Failed.into()),
+        Err(Error::AlreadyResolved)
+    ));
+}
+
+/// Releasing pays others out of the sponsor's own funding. Taking it back is
+/// a judgement on the contributors' work, which stays the evaluator's.
+#[test]
+fn sponsor_can_never_attest_failed() {
+    let p = params(&[1_000_000], 3600);
+    let mut contract = deploy(&p);
+    fund(&mut contract, &p, "sponsor.test", 50);
+    commit_all(&mut contract, &p);
+    deliver_all(&mut contract, &p);
+
+    call_from("sponsor.test", vec![]);
+    assert!(matches!(
+        contract.attest(&id("sponsor.test"), &p, Verdict::Failed.into()),
+        Err(Error::Unauthorized)
+    ));
+    assert_eq!(contract.ob_view().no_verify().funded, 50);
+}
+
+/// The release ends when the evaluator's time to attest does, and travels
+/// through a signed intent like any attestation.
+#[test]
+fn sponsor_releases_by_auth_call_and_only_in_time() {
+    let p = params(&[1_000_000], 3600);
+    let mut contract = deploy(&p);
+    fund(&mut contract, &p, "sponsor.test", 50);
+    commit_all(&mut contract, &p);
+    deliver_all(&mut contract, &p);
+    call_from(VERIFIER, vec![]);
+    contract
+        .on_auth(
+            id("sponsor.test"),
+            serde_json::to_string(&Message {
+                params: p.clone(),
+                action: Action::Attest(Verdict::Achieved.into()),
+            })
+            .unwrap(),
+        )
+        .detach_if_promise();
+    assert_eq!(event("resolved")["outcome"], "released");
+
+    let late = params(&[1_000_000], -1);
+    let mut contract = deploy(&late);
+    state(&mut contract).delivered = late.all_contributors();
+    call_from("sponsor.test", vec![]);
+    assert!(matches!(
+        contract.attest(&id("sponsor.test"), &late, Verdict::Achieved.into()),
+        Err(Error::DeadlineExpired)
+    ));
+}
+
+/// A sponsor that is also the evaluator judges as the evaluator: its
+/// achieved verdict is a verdict.
+#[test]
+fn a_sponsor_who_evaluates_attests_as_the_evaluator() {
+    let p = Params {
+        evaluator: id("sponsor.test"),
+        ..params(&[1_000_000], 3600)
+    };
+    let mut contract = deploy(&p);
+    commit_all(&mut contract, &p);
+    deliver_all(&mut contract, &p);
+    call_from("sponsor.test", vec![]);
+    contract
+        .ob_attest(p, Verdict::Achieved.into())
+        .detach_if_promise();
+    assert_eq!(event("resolved")["outcome"], "achieved");
+}
+
 #[test]
 fn close_expires_only_after_deadline() {
     let p = params(&[1_000_000], 3600);

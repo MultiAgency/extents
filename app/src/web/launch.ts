@@ -77,7 +77,16 @@ async function until(check: () => Promise<boolean>, what: string) {
   throw new Error(`${what} did not show up`);
 }
 
-export function useLaunch(view: ToolView<LaunchResult>, account: string, onDone: (r: LaunchResult) => void): LaunchModel | undefined {
+/**
+ * With `given`, the salt is fixed (a launch link's objective); otherwise a
+ * saved launch of the same terms resumes, or a fresh salt starts one.
+ */
+export function useLaunch(
+  view: ToolView<LaunchResult>,
+  account: string,
+  onDone: (r: LaunchResult) => void,
+  given?: string,
+): LaunchModel | undefined {
   const { near } = useWallet();
   const parsed = view.state === "pending" ? proposal.safeParse(view.input) : undefined;
   const key = parsed?.success ? launchKey(parsed.data, account, objectiveCodeHash()) : undefined;
@@ -89,7 +98,13 @@ export function useLaunch(view: ToolView<LaunchResult>, account: string, onDone:
     storageFailure = "Saved launch progress is unavailable or invalid. Restore browser storage before launching; no transaction was sent.";
   }
   const [fresh] = useState(randomSalt);
-  const salt = stored?.salt ?? fresh;
+  // the same terms already launching here as another objective: funding this one too is a choice, not a resume
+  if (given && stored && stored.salt !== given) {
+    storageFailure ??=
+      "This browser is already launching the same terms as a different objective. Finish that one first; no transaction was sent.";
+    stored = undefined; // its progress is another objective's
+  }
+  const salt = given ?? stored?.salt ?? fresh;
   const [done, setDone] = useState<Partial<Record<StepId, string | true>>>(() => stored?.done ?? {});
   const [running, setRunning] = useState(false);
   const [failure, setFailure] = useState<string>();

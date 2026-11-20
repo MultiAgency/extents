@@ -26,7 +26,7 @@ an evaluator attests that the objective was achieved.
 | Concern        | Mechanism                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------ |
 | Objective      | `spec_hash` commits to the off-chain [spec](#extents-spec) the evaluator judges against    |
-| Authority      | `evaluator` alone resolves, once, before the last moment to attest; it cannot also be a contributor |
+| Authority      | `evaluator` alone judges, once, before the last moment to attest; it cannot also be a contributor. The `sponsor` can only release |
 | Resources      | a single NEP-245 token on the Verifier, funded by `sponsor` via `mt_transfer_call`                  |
 | Commitment     | each contributor commits with `ob_commit`, or its named backup after `commit_by`; an achieved verdict needs every slot delivered |
 | Delivery       | each committed contributor records what it delivered, by hash, with `ob_deliver`                    |
@@ -34,6 +34,15 @@ an evaluator attests that the objective was achieved.
 
 The sponsor may also be the evaluator, as a DAO judging its own grants would
 be. Contributors then trust the sponsor's own verdict on whether to pay them.
+
+<a id="release"></a>**Release:** a sponsor that is not the evaluator can still
+concede. Once every slot has delivered, its own `ob_attest` with `achieved`
+pays the contributors out of what it funded, and the objective resolves as
+`released`, never as the evaluator's verdict. It needs nobody's word but the
+sponsor's, so two parties who agree settle without the evaluator, who is then
+only called on when they disagree. The sponsor can never attest `failed`:
+taking the funding back is a judgement on the work, and stays the
+evaluator's.
 
 Like `escrow-swap`, which it follows closely, the account id is derived from
 `Params` ([NEP-616]), so the address is known before deployment. Only the params
@@ -129,7 +138,8 @@ evaluator does not attest.
 
 Funding, commitment and delivery end at `Params.deadline` either way; only the
 time to attest moves. Within it the evaluator can still attest `achieved` or
-`failed`, and a `failed` verdict is final: there is no dispute path.
+`failed`, the sponsor can still [release](#release), and a `failed` verdict is
+final: there is no dispute path.
 
 **Settlement:** the outcome moves the funded balance into `owed`, and the contract
 sends each amount with `mt_transfer` on the Verifier. Failed transfers go back
@@ -151,7 +161,11 @@ Deletion waits for the last moment to attest so that redeploying the same
   when, not who made it or whether it is good.
 - **Honest judging.** A bribed or captured evaluator, DAO majority included,
   is recorded like any other, and the contract sees no payment made off chain.
-- **Privacy.** Params, specs, reports and reviews are public.
+- **Privacy.** Params, specs, reports and reviews are public, and so is the
+  money: an objective is an account on the public Verifier, and its funding,
+  balance and payouts are public by design. It has only been run against the
+  public Verifier. An account that keeps a confidential NEAR Intents balance
+  funds an objective from, and is paid on, its public one.
 - **Independence from the Verifier's operators.** Its `DAO` and
   `UnrestrictedWithdrawer` roles can force-transfer any balance on it,
   an objective's included, and can lock accounts.
@@ -288,6 +302,10 @@ Established, by unit tests under `near-sdk` mocking (`cargo test`):
   verdict or the deadline
 - one verdict, only from the evaluator, only before the deadline; expiry only
   after it
+- release: the sponsor's `achieved` pays the split and resolves as `released`,
+  only once every slot has delivered and only in the time to attest, directly
+  or through `on_auth`; the sponsor's `failed` is refused; a sponsor that is
+  also the evaluator attests as the evaluator
 - events for commitments and for the allocation of an achieved and of a
   failed verdict, including the review hash
 - committing, delivering and attesting through `on_auth`
@@ -323,6 +341,10 @@ is published as global code `4GxG7Nyek6NcaKqkGfDoXrBwspYPE7gA1ADigd3JoiTF`
 the full sandbox suite on that exact file first. All ten scenarios pass, 170 of
 170 checks. Every transaction and balance is in
 [`e2e/results/30a94195…/`](e2e/results/30a9419511a344613eb36e64cdee02a3f032ce17811ef2098e729030713f8cb6/RESULTS.md).
+
+[Release](#release) (`Outcome::Released`) is in the source and its unit tests
+only. It changes the contract's code hash, so the published build does not
+have it, and it has not run in the sandbox or on testnet.
 
 - **Deployment.** Publishing by code hash cost 32.48 NEAR (10× storage for
   324,728 bytes). `StateInit` deploys at the account id derived from

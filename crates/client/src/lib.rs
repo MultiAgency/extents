@@ -11,6 +11,7 @@
 //! because the sibling `intents` checkout is ahead of the deployed build.
 
 pub mod objective;
+pub mod outcome;
 
 use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};

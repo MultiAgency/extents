@@ -41,6 +41,10 @@ describe("objective journey", () => {
     expect(objectiveJourney(PARAMS, { outcome: "achieved", in_flight: 1 }, BEFORE).current).toBe("settle");
     expect(objectiveJourney(PARAMS, { outcome: "achieved", owed: { "contributor:0": "0" } }, BEFORE).current).toBeUndefined();
     expect(objectiveJourney(PARAMS, { outcome: "accepted" }, BEFORE).skipped).toEqual(["judge"]);
+    // the sponsor's own release: no verdict was needed, and the contributors are paid
+    const released = objectiveJourney(PARAMS, { outcome: "released" }, BEFORE);
+    expect(released.skipped).toEqual(["judge"]);
+    expect(nextLine(released, false)).toBe("Settled: released, and every share is paid.");
   });
 });
 

@@ -4,7 +4,8 @@ This repository has no reputation service or score. An external reader can deriv
 `funded`, `committed`, `delivered`, `resolved`, `paid`, `lost` and `cleanup` events.
 
 A resolved outcome records allocation; `paid` records completed transfers. An accepted outcome
-records silence under the agreed acceptance window, not an evaluator's positive verdict.
+records silence under the agreed acceptance window, and a released one the sponsor's own decision
+to pay; neither is an evaluator's positive verdict.
 A delivery hash records a commitment, not the quality or truth of the work.
 
 The app publishes reports and reviews as public plaintext (documents.md). It verifies a report

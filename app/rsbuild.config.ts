@@ -38,6 +38,7 @@ export default defineConfig({
   output: { distPath: { root: process.env.DIST_DIR ?? "dist" } },
   server: {
     port: 3001,
-    proxy: { "/api": `http://localhost:${process.env.PORT ?? 3000}` },
+    // the page's own host passes through, so links the API builds (a draft's launch link) point at this page
+    proxy: { "/api": { target: `http://localhost:${process.env.PORT ?? 3000}`, changeOrigin: false } },
   },
 });

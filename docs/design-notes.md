@@ -20,8 +20,13 @@ deadline. Neither commitment nor delivery can be withdrawn.
 The last delivery can extend the evaluator's deadline by the configured acceptance window.
 It never extends funding, commitment or delivery. Without a verdict, close accepts only when
 there is a window and every slot delivered; otherwise it expires and refunds the sponsor.
-An achieved verdict requires all slots committed. The evaluator remains the agreed authority;
+An achieved verdict requires every slot delivered. The evaluator remains the agreed authority;
 this contract has no dispute or partial-verdict mechanism.
+
+The sponsor can release: its own `achieved`, under the evaluator's conditions, pays the split and
+resolves as `released`. A party may always give up its own claim, so the sponsor paying needs no
+judge, and contributors already concede by not delivering. The sponsor can never attest `failed`.
+An agreed settlement therefore needs no evaluator; a disputed one still does.
 
 ## Settlement and cleanup
 

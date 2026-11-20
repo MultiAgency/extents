@@ -90,9 +90,12 @@ be checked against the same bytes. There is no replay tool yet. Draft checks do 
 ## For agents
 
 - The agent API, plain JSON: `POST /api/tools/:name` (the customer agent's tools), `POST /api/draft` (exact `Params`,
-  address, page and unsigned transactions), `POST /api/deploy`, and `POST /api/objective/:id/review` (the review and the
+  address, unsigned transactions, and a launch link whose fragment carries the terms to the sponsor's browser), `POST /api/deploy`, `POST /api/objective/:id/contribute` (a contributor's commit, delivery and report publication, one step at a time), and `POST /api/objective/:id/review` (the review and the
   unsigned calls that publish and attest it, or propose it to a DAO evaluator). Agents prepare; wallets and DAOs sign.
   Every answer about an objective links its page, `/o/<objective>`, where people act in their own wallets.
+  Every unsigned call also carries `near_call`: the same call with gas in gas units and deposit in yoctoNEAR, under the
+  field names of the NEAR Intents Agent API's `native/near/call`. That API is mainnet-only, so the hand-off is checked
+  against its published body limits (`app/test/calls.test.ts`) and has not been run.
 - `/llms.txt` and `/skill.md`: the protocol and the launch and evaluation recipes, for agents and coding assistants.
 - `/api/agent`: the customer agent itself, for any AG-UI client.
 

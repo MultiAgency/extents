@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import { attestProposal } from "../src/shared/attest.ts";
-import { calls, type Call } from "../src/shared/calls.ts";
+import { calls, nearCall, type Call } from "../src/shared/calls.ts";
 import type { Params } from "../src/shared/params.ts";
 
 interface Wire {
@@ -53,4 +53,63 @@ describe.each(cases)("$name", (c) => {
   test("close", () => expect(wire(calls.close(c.account, p))).toEqual(c.calls.close));
   // the proposal's description is free text; its kind is what the DAO executes
   test("attest proposal", () => expect(attestProposal(c.account, p, attestation).proposal.kind).toEqual(c.attest_proposal_kind));
+
+  // the same calls as raw NEAR function calls: the client's own units, under the NEAR Intents Agent API's field names
+  test("near_call", () => {
+    for (const [name, call] of [
+      ["fund", calls.fund(c.account, p, 1000n)],
+      ["commit", calls.commit(c.account, p)],
+      ["deliver", calls.deliver(c.account, p, "01".repeat(32))],
+      ["attest", calls.attest(c.account, p, attestation)],
+      ["close", calls.close(c.account, p)],
+    ] as const) {
+      const pinned = c.calls[name];
+      const { deposit, ...rest } = nearCall(call);
+      expect({ ...rest, deposit: deposit ?? "0" }, name).toEqual({
+        receiver_id: pinned.receiver,
+        method_name: pinned.method,
+        args: pinned.args,
+        gas: pinned.gas,
+        deposit: pinned.deposit,
+      });
+    }
+  });
+});
+
+/**
+ * The limits `POST /v1/agents/{agent_id}/native/near/call` puts on its body, from the Agent API's
+ * OpenAPI (api.agentsonintents.com/openapi.json, read 2026-11-20). A copy, so a call this app
+ * builds that the API would refuse on shape fails here. It cannot show that the API accepts one:
+ * that API is mainnet-only and this app has never called it.
+ */
+const NEAR_CALL_BODY = {
+  receiver_id: /^(?:[a-z\d]+[-_])*[a-z\d]+(?:\.(?:[a-z\d]+[-_])*[a-z\d]+)*$/,
+  method_name: /^[A-Za-z0-9_]+$/,
+  gas: /^[0-9]{1,20}$/,
+  deposit: /^[0-9]{1,78}$/,
+};
+
+test("every call on an objective fits the Agent API's near/call body", () => {
+  const c = cases[0]!;
+  const p = params.get(c.name)!;
+  for (const call of [
+    calls.commit(c.account, p),
+    calls.deliver(c.account, p, "01".repeat(32)),
+    calls.attest(c.account, p, { verdict: "failed" }),
+    calls.close(c.account, p),
+    calls.publish(c.account, { deliverable: { text: "report", delivery_tx: "TX", delivery_signer: "alice.near" } }),
+    calls.propose(c.account, p, { verdict: "failed" }, "100000000000000000000000"),
+  ]) {
+    const body = nearCall(call);
+    expect(Object.keys(body).sort(), call.method).toEqual(
+      ["args", "deposit", "gas", "method_name", "receiver_id"].filter((k) => k !== "deposit" || call.yocto !== undefined),
+    );
+    expect(body.receiver_id.length, call.method).toBeLessThanOrEqual(64);
+    expect(body.method_name.length, call.method).toBeLessThanOrEqual(256);
+    for (const [field, pattern] of Object.entries(NEAR_CALL_BODY)) {
+      const value = (body as Record<string, unknown>)[field];
+      if (value !== undefined) expect(value, `${call.method} ${field}`).toMatch(pattern);
+    }
+    expect(body.args, call.method).toBeTypeOf("object");
+  }
 });

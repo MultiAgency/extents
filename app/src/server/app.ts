@@ -18,7 +18,7 @@ import { proposal } from "../shared/objective.ts";
 import { validateParams, type Params } from "../shared/params.ts";
 import { accountId } from "../shared/spec.ts";
 import { runAgent, type AgentDeps } from "./agent.ts";
-import { draft, review } from "./agents.ts";
+import { contribute, draft, review, type ContributorView } from "./agents.ts";
 import type { CheckDeps } from "./checks.ts";
 import { runChecks, runEvaluation, type CheckRunDeps } from "./precheck.ts";
 import { SERVER_TOOLS } from "./tools.ts";
@@ -194,6 +194,37 @@ export function createApp(deps: AppDeps): Hono {
     if (!input.success) return c.json({ error: `invalid input: ${z.prettifyError(input.error)}` }, 400);
     try {
       return c.json(draft(input.data.proposal, input.data.sponsor, input.data.salt, c.req.url));
+    } catch (e) {
+      return c.json(failure(e), 400);
+    }
+  });
+
+  const contributeInput = z.object({
+    account: accountId,
+    // the reader accepts no longer report
+    report: z.string().min(1).max(200_000).optional(),
+    delivery_tx: z
+      .string()
+      .regex(/^[1-9A-HJ-NP-Za-km-z]{32,64}$/)
+      .optional(),
+    delivery_signer: accountId.optional(),
+  });
+  /** A contributor's part as unsigned calls, one step at a time: commit, deliver the report's hash, publish the report. Nothing is sent. */
+  app.post("/api/objective/:id/contribute", async (c) => {
+    const objective = accountId.safeParse(c.req.param("id"));
+    if (!objective.success) return c.json({ error: "not an account id" }, 400);
+    const input = contributeInput.safeParse(await c.req.json().catch(() => undefined));
+    if (!input.success) return c.json({ error: `invalid input: ${z.prettifyError(input.error)}` }, 400);
+    let view: ContributorView;
+    try {
+      const signal = withTimeout(c.req.raw.signal, RPC_READ_MS);
+      view = (await abortable(signal, () => deps.chain.describeObjective(objective.data, signal))) as ContributorView;
+    } catch (e) {
+      console.error(e);
+      return c.json({ error: "could not read the objective" }, 502);
+    }
+    try {
+      return c.json(contribute(objective.data, view, input.data, c.req.url));
     } catch (e) {
       return c.json(failure(e), 400);
     }

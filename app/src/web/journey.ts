@@ -4,7 +4,7 @@
  * page already has (the draft, or the contract's state), never stored.
  */
 import { holders } from "../shared/delivery.ts";
-import type { Params } from "../shared/params.ts";
+import { paysContributors, type Params } from "../shared/params.ts";
 
 export const STEPS = [
   { id: "draft", label: "Draft", role: "Sponsor", about: "Tell the agent what should happen, who does it, and by when." },
@@ -53,7 +53,8 @@ const bit = (mask: number | undefined, i: number) => ((mask ?? 0) >> i) & 1;
 /** A deployed objective, read from the contract's state at `now` (ms). */
 export function objectiveJourney(params: Params, state: ObjectiveState | undefined, now: number): Journey {
   const outcome = state?.outcome;
-  const skipped: StepId[] = outcome === "expired" || outcome === "accepted" ? ["judge"] : [];
+  // settled without the evaluator's verdict: by the deadline, by silence, or by the sponsor's own release
+  const skipped: StepId[] = outcome === "expired" || outcome === "accepted" || outcome === "released" ? ["judge"] : [];
   if (outcome) {
     const pending = Boolean(state?.in_flight) || Object.values(state?.owed ?? {}).some((a) => BigInt(a) > 0n);
     return pending
@@ -74,7 +75,7 @@ export function objectiveJourney(params: Params, state: ObjectiveState | undefin
 /** The sentence under the steps: whose move it is, or how it ended. */
 export function nextLine(j: Journey, you: boolean): string {
   if (!j.current)
-    return j.outcome === "achieved" || j.outcome === "accepted"
+    return paysContributors(j.outcome)
       ? `Settled: ${j.outcome}, and every share is paid.`
       : `Settled: ${j.outcome}, and the sponsor is refunded.`;
   if (you) return `Your turn: ${j.task}.`;

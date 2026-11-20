@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-
 use anyhow::{Context, Result};
 use extents_client::objective::Call;
 use extents_objective::Timestamp;
 use near_kit::{
     AccountId, CryptoHash, Gas, Near, NearToken,
     protocol::StateInit,
-    rpc::{ActionView, BlockReference, FinalExecutionOutcome, Finality, ReceiptContent},
+    rpc::{ActionView, BlockReference, FinalExecutionOutcome, Finality},
     signer::FileSigner,
     transaction::{Final, TransactionBuilder},
 };
@@ -234,63 +232,25 @@ impl Chain {
 }
 
 fn record(label: &str, signer: &AccountId, outcome: &FinalExecutionOutcome) -> Tx {
-    let bodies: HashMap<_, _> = outcome.receipts.iter().map(|r| (r.receipt_id, r)).collect();
-
-    let receipts = outcome
-        .receipts_outcome
-        .iter()
-        .filter_map(|o| {
-            let body = bodies.get(&o.id)?;
-            let ReceiptContent::Action(action) = &body.receipt else {
-                return None;
-            };
-            let (mut names, mut attached, mut attached_yocto, mut transfer) =
-                (Vec::new(), None, None, None);
-            for a in &action.actions {
-                match a {
-                    ActionView::FunctionCall {
-                        method_name,
-                        gas,
-                        deposit,
-                        ..
-                    } => {
-                        names.push(method_name.clone());
-                        attached = Some(tgas(*gas));
-                        attached_yocto = Some(deposit.as_yoctonear().to_string());
-                    }
-                    ActionView::Transfer { deposit } => {
-                        names.push("transfer".into());
-                        transfer = Some(deposit.as_yoctonear().to_string());
-                    }
-                    other => names.push(action_name(other)),
-                }
+    let receipts = extents_client::outcome::receipts(outcome)
+        .into_iter()
+        .map(|r| {
+            let call = r.method.is_some();
+            ReceiptRecord {
+                predecessor: r.predecessor,
+                executor: r.executor,
+                action: r.actions.join("+"),
+                attached_tgas: call.then(|| tgas(r.gas)),
+                attached_yocto: call.then(|| r.attached.to_string()),
+                burnt_tgas: tgas(r.burnt),
+                transfer_yocto: r.transfer.map(|t| t.to_string()),
+                ok: r.ok,
+                error: r.error,
+                value: r.value,
             }
-            Some(ReceiptRecord {
-                predecessor: body.predecessor_id.clone(),
-                executor: o.outcome.executor_id.clone(),
-                action: names.join("+"),
-                attached_tgas: attached,
-                attached_yocto,
-                burnt_tgas: tgas(o.outcome.gas_burnt),
-                transfer_yocto: transfer,
-                ok: o.outcome.status.is_success(),
-                error: o.outcome.status.failure().map(|e| format!("{e:?}")),
-                value: o.outcome.status.success_value().and_then(json_value),
-            })
         })
         .collect();
-
-    // A failed receipt keeps its logs, though its state changes are
-    // reverted: only successful receipts' events happened.
-    let events = outcome
-        .receipts_outcome
-        .iter()
-        .filter(|r| r.outcome.status.is_success())
-        .flat_map(|r| &r.outcome.logs)
-        .filter_map(|log| log.strip_prefix("EVENT_JSON:"))
-        .filter_map(|json| serde_json::from_str::<Value>(json).ok())
-        .filter(|e| e["standard"] == "extents-objective")
-        .collect();
+    let events = extents_client::outcome::events(outcome);
 
     Tx {
         label: label.into(),
@@ -317,15 +277,6 @@ fn record(label: &str, signer: &AccountId, outcome: &FinalExecutionOutcome) -> T
 
 fn json_value(bytes: &[u8]) -> Option<Value> {
     serde_json::from_slice(bytes).ok()
-}
-
-fn action_name(action: &ActionView) -> String {
-    let debug = format!("{action:?}");
-    debug
-        .split(|c: char| !c.is_alphanumeric())
-        .next()
-        .unwrap_or_default()
-        .to_owned()
 }
 
 /// Tgas with Mgas precision; 300 Tgas is 3e8 Mgas, well within `u32`.

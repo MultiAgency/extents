@@ -92,11 +92,26 @@ export const calls = {
   }),
 };
 
-/** A call as an agent reads it: gas and deposit in the units wallets take. */
-export const describe = ({ receiver, method, args, tgas, yocto }: Call) => ({
-  receiver,
-  method,
+/**
+ * A call as a raw NEAR function call: gas in gas units and deposit in
+ * yoctoNEAR, both decimal strings. These are the field names and units of the
+ * NEAR Intents Agent API's `native/near/call` body, which an agent's own NEAR
+ * account sends as is.
+ */
+export const nearCall = ({ receiver, method, args, tgas, yocto }: Call) => ({
+  receiver_id: receiver,
+  method_name: method,
   args,
-  gas: `${tgas} Tgas`,
-  ...(yocto !== undefined ? { deposit: `${yocto} yocto` } : {}),
+  gas: (BigInt(tgas) * 10n ** 12n).toString(),
+  ...(yocto !== undefined ? { deposit: yocto.toString() } : {}),
+});
+
+/** A call as an agent reads it: gas and deposit in the units wallets take, and the same call as `near_call`. */
+export const describe = (call: Call) => ({
+  receiver: call.receiver,
+  method: call.method,
+  args: call.args,
+  gas: `${call.tgas} Tgas`,
+  ...(call.yocto !== undefined ? { deposit: `${call.yocto} yocto` } : {}),
+  near_call: nearCall(call),
 });

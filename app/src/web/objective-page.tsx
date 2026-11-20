@@ -2,23 +2,28 @@
  * An objective's own page, `/o/<address>`: public, so anyone can see the
  * escrow and its terms; a contributor commits here, checks their work
  * against the spec live, and delivers it; the evaluator judges what was
- * delivered and attests the verdict.
+ * delivered and attests the verdict. Opened from a launch link before it
+ * is funded, it is where the sponsor launches it.
  */
 import { HttpAgent } from "@ag-ui/client";
 import type { Near } from "near-kit";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { attestationOf, attestProposal, mayPropose, type Dao } from "../shared/attest.ts";
 import { calls } from "../shared/calls.ts";
 import { utf8Bytes } from "../shared/judge.ts";
 import { deliveredBy, deliveryHash, holders, verifyReports } from "../shared/delivery.ts";
 import type { DraftState } from "../shared/draft.ts";
-import { formatUnits } from "../shared/objective.ts";
-import { contributorsInOrder, PIPS_MAX, timestampNanos, type Params } from "../shared/params.ts";
+import { objectiveCodeHash } from "../shared/config.ts";
+import { parseLaunchFragment, type LaunchLink } from "../shared/launch-link.ts";
+import { buildObjective, formatUnits, type LaunchResult, type Objective } from "../shared/objective.ts";
+import { contributorsInOrder, paysContributors, PIPS_MAX, timestampNanos, type Params } from "../shared/params.ts";
 import { reportHash, type CheckSummary, type Delivered } from "../shared/review.ts";
 import { parseReview, reviewHash, type Review, type Spec } from "../shared/spec.ts";
 import { fileAttestation, filingKey, HashlessFiling, setAside } from "./dao-proposal.ts";
-import { objectiveJourney, type ObjectiveState } from "./journey.ts";
+import type { ToolView } from "./cards.tsx";
+import { launchJourney, objectiveJourney, type ObjectiveState } from "./journey.ts";
+import { useLaunch } from "./launch.ts";
 import { Plat } from "./plat.tsx";
 import { finalStatus, publishFastData, sign } from "./send.ts";
 import { GoTo, Steps, SwitchTo } from "./steps.tsx";
@@ -68,6 +73,7 @@ export function ObjectivePage({ address }: { address: string }) {
     }
   }, [address]);
   useEffect(() => void refresh(), [refresh]);
+  const [link] = useState(() => parseLaunchFragment(location.hash));
   // another role acts from another wallet: keep the page current while it is open, until it is settled
   const settled = Boolean(
     view?.documents && view.state?.outcome && !objectiveJourney(view.documents.params, view.state, Date.now()).current,
@@ -90,6 +96,8 @@ export function ObjectivePage({ address }: { address: string }) {
       </div>
     );
   if (!view) return <p className="text-ink-soft">Reading the objective…</p>;
+  if (link && !view.state?.outcome && BigInt(view.state?.funded ?? "0") === 0n)
+    return <LinkLaunch address={address} link={link} onLaunched={refresh} />;
   if (!view.deployed || !view.documents)
     return (
       <p className="text-ink-soft">
@@ -109,7 +117,7 @@ export function ObjectivePage({ address }: { address: string }) {
     (accountId === docs.params.evaluator || Boolean(view.evaluator_dao && accountId && mayPropose(view.evaluator_dao, accountId)));
   const journey = objectiveJourney(docs.params, view.state, Date.now());
   // the map stays inked once the escrow paid out, not only while it holds the money
-  const paid = view.state?.outcome === "achieved" || view.state?.outcome === "accepted";
+  const paid = paysContributors(view.state?.outcome);
   const you =
     Boolean(accountId && journey.actors.includes(accountId)) ||
     (journey.current === "judge" && evaluating) ||
@@ -218,6 +226,65 @@ function ShareLink() {
       {copied ? "Link copied" : "Copy the link for the next role"}
     </button>
   );
+}
+
+/**
+ * A launch link, opened before the objective is funded: its terms, rebuilt
+ * here and checked against the address, and for the sponsor the same signing
+ * steps as the workspace (deploy, publish, fund), resumable after a reload.
+ */
+function LinkLaunch({ address, link, onLaunched }: { address: string; link: LaunchLink | Error; onLaunched: () => Promise<void> }) {
+  const { accountId } = useWallet();
+  const [declined, setDeclined] = useState<string>();
+  const onDone = useCallback(
+    (r: LaunchResult) => {
+      if (!r.launched) return setDeclined(r.reason);
+      history.replaceState(null, "", location.pathname); // the plain link is the one to share from here on
+      void onLaunched();
+    },
+    [onLaunched],
+  );
+
+  let objective: Objective | undefined;
+  let problem = link instanceof Error ? link.message : undefined;
+  if (!(link instanceof Error)) {
+    try {
+      objective = buildObjective(link.proposal, link.sponsor, link.salt, objectiveCodeHash());
+      if (objective.accountId !== address)
+        problem =
+          "This link's terms derive a different address than this page's, so there is nothing here to sign. Ask for the link again.";
+    } catch (e) {
+      problem = `These terms can't be launched: ${e instanceof Error ? e.message : e}`;
+    }
+  }
+  if (problem || !objective || link instanceof Error)
+    return (
+      <p role="alert" className="text-alert">
+        {problem}
+      </p>
+    );
+
+  const you = accountId === link.sponsor;
+  const draft = draftOf(objective, objective.amount);
+  return (
+    <div className="flex flex-col gap-8">
+      <Steps
+        journey={launchJourney("ready", link.sponsor, [])}
+        you={you}
+        action={you ? <GoTo href="#plat">Review and sign</GoTo> : <SwitchTo account={link.sponsor} />}
+      />
+      {declined && <p className="text-ink-soft">Not launched: {declined}</p>}
+      <div id="plat" className="mx-auto w-full max-w-3xl scroll-mt-6">
+        {you && !declined ? <SponsorLaunch link={link} draft={draft} onDone={onDone} /> : <Plat draft={draft} />}
+      </div>
+    </div>
+  );
+}
+
+function SponsorLaunch({ link, draft, onDone }: { link: LaunchLink; draft: DraftState; onDone: (r: LaunchResult) => void }) {
+  const view = useMemo<ToolView<LaunchResult>>(() => ({ state: "pending", input: link.proposal }), [link]);
+  const model = useLaunch(view, link.sponsor, onDone, link.salt);
+  return <Plat draft={draft} {...(model ? { launch: model } : {})} />;
 }
 
 function Contributor(props: {

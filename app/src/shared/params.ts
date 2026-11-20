@@ -76,12 +76,16 @@ const storageSchema = b.option(
     committed: b.u16(),
     delivered: b.u16(),
     taken: b.u16(),
-    outcome: b.option(b.enum({ Achieved: unit, Failed: unit, Expired: unit, Accepted: unit })),
+    outcome: b.option(b.enum({ Achieved: unit, Failed: unit, Expired: unit, Accepted: unit, Released: unit })),
     owed: b.hashMap(b.enum({ Sponsor: unit, Contributor: b.u8() }), b.u128()),
     deadline: nanos,
     in_flight: b.u32(),
   }),
 );
+
+/** Whether an outcome pays the contributors by their shares; every other returns the funding to the sponsor. */
+export const paysContributors = (outcome: string | undefined): boolean =>
+  outcome === "achieved" || outcome === "accepted" || outcome === "released";
 
 const I64_MIN = -(2n ** 63n);
 const I64_MAX = 2n ** 63n - 1n;

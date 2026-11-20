@@ -1,6 +1,6 @@
 ---
 name: extents
-description: Draft, deploy and hand over an Extents objective (escrow for a real-world outcome on NEAR) for a sponsor to sign, read its state, and evaluate its deliveries for the evaluator. Use when someone wants to fund an outcome that other people deliver and an evaluator judges, or is that evaluator.
+description: Draft, deploy and hand over an Extents objective (escrow for a real-world outcome on NEAR) for a sponsor to sign, read its state, take a contributor's part in one, and evaluate its deliveries for the evaluator. Use when someone wants to fund an outcome that other people deliver and an evaluator judges, or is one of those people or that evaluator.
 ---
 
 # Extents for agents
@@ -21,12 +21,29 @@ unless they sign with tools of their own.
    `POST /api/tools/verifier_balance`.
 4. **Draft it** with `POST /api/draft`. You get the objective's address, its page, its exact `Params`, and two unsigned
    transactions. Keep the returned `params.salt`: drafting again with it gives the same objective.
-5. **Deploy it** with `POST /api/deploy {params}`. It is idempotent and cannot change the terms.
-6. **Hand the two transactions to the sponsor to sign**, in order: `publish` (its receipt fails by design; FastData
-   indexes it anyway), then `fund`. Show the sponsor the terms and the address first. Do not sign them yourself. A
-   sponsor without signing tools can instead launch it in this app's workspace at `/`, in their browser wallet.
+5. **Deploy it** with `POST /api/deploy {params}`, unless the sponsor will launch from the page, which deploys it. It
+   is idempotent and cannot change the terms.
+6. **Send the sponsor the `page` link.** They review the terms there and launch it in their browser wallet: it deploys,
+   publishes and funds in order, and resumes after a reload. A sponsor who signs with tools of their own signs the two
+   transactions instead, in order: `publish` (its receipt fails by design; FastData indexes it anyway), then `fund`.
+   Either way, show the sponsor the terms and the address first, and never sign for them.
 7. **Confirm** with `GET /api/objective/<objective>`: it is live once `state.funded` equals the amount. Then send the
    contributors its page: they commit and deliver there.
+
+## Contribute to an objective
+
+A contributor with a browser wallet does all of this on the objective's page. One who signs with tools of their own
+asks `POST /api/objective/<objective>/contribute` for each step; its `next` says what to do and `transactions` holds
+the call to sign.
+
+1. **Commit.** Send `{account}`. Sign the `commit` it returns. Committing cannot be undone, so read the terms first
+   (`GET /api/objective/<objective>`): the criteria, the share, the deadline and who judges.
+2. **Check the report** before delivering it, with `POST /api/check`. A delivery is final.
+3. **Deliver.** Send `{account, report}`. Sign the `deliver` it returns, which carries the report's SHA-256
+   (`report_sha256`), and keep the exact text. Wait for the transaction to be final.
+4. **Publish the report.** Send `{account, report, delivery_tx}`. Sign the `publish` it returns (its receipt fails by
+   design; FastData indexes it anyway). The API does not check the report against the chain here: compare
+   `report_sha256` with the one you delivered, because a report that doesn't match counts as missing.
 
 ## Publish a delivery
 
@@ -49,6 +66,31 @@ as its own account. A slot with no report, no proof, or text that doesn't match 
    review's hash), or `propose` (an `add_proposal` with the DAO's bond) when the evaluator is a Sputnik DAO. The DAO must
    approve the proposal before the deadline.
 5. `achieved` is refused unless every contributor delivered. After the effective deadline (`state.deadline`, which delivery may extend) nobody can attest; `ob_close` settles it.
+
+## Sign with a NEAR Intents Agent API account
+
+Not yet run: the hosted Agent API (`api.agentsonintents.com`) is mainnet-only, and this deployment is on NEAR testnet.
+What follows is built from its published reference and holds for a mainnet deployment of Extents.
+
+An agent account there has its own NEAR account (`wallet.near_account_id`). Name that account in the terms as the
+contributor or the evaluator. Every transaction this API returns carries `near_call`, which is exactly the body of the
+Agent API's `POST /v1/agents/{agent_id}/native/near/call`.
+
+1. **The owner allows the objective.** They sign a policy update that adds the objective's account to
+   `native.near.call`. It is one signature per objective, policy changes are limited to one every five minutes, and a
+   call there is not bound by the policy's budget, timelock, schedule or owner approval. Give the owner the objective's
+   `page` first.
+2. **Send each `near_call` as it is,** with a grant and an `Idempotency-Key`: `commit`, `deliver`, `attest`, `close`.
+   Read the outcome from `GET /v1/status`; `SUCCESS` means NEAR finalized it, and `details.tx_hash` is the
+   `delivery_tx` to send back here.
+3. **A `publish` reads `FAILED`** (`native_transaction_failed`) there, because its receipt fails by design. FastData has
+   indexed it all the same. Do not send it again.
+4. **Payouts arrive on the account's public NEAR Intents balance.** `shield` moves them into its confidential balance.
+
+What that account cannot do: sign `fund`. Its NEAR key never calls the NEAR Intents contracts. Its EVM or Solana key can
+sign a transfer intent that funds an objective, but this app cannot yet publish the terms for a sponsor that has no
+NEAR key, so an agent account cannot be the sponsor here. A DAO evaluator's `propose` works like any other call once the DAO is
+listed, but its bond is NEAR the policy's `destinations` must allow.
 
 ## Rules
 

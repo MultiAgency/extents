@@ -47,6 +47,11 @@ pub trait Objective {
     ///
     /// Only `params.evaluator`, only once, only before the deadline or the
     /// end of the acceptance window, whichever is later.
+    ///
+    /// `params.sponsor` may send [`Verdict::Achieved`] too, under the same
+    /// conditions: it releases its own funding to the contributors, and the
+    /// objective resolves as [`Outcome::Released`], not as the evaluator's
+    /// verdict. The sponsor can never send [`Verdict::Failed`].
     fn ob_attest(&mut self, params: Params, attestation: Attestation) -> PromiseOrValue<()>;
 
     /// Permissionless. Once the last moment to attest passed without a

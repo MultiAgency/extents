@@ -18,6 +18,20 @@ export function holders(params: Params, taken = 0): string[] {
   });
 }
 
+/**
+ * The slot `account` holds, or may take now, by its index in contributor
+ * order: its own as a listed contributor, the one it took as a backup, or,
+ * once `commit_by` has passed, an uncommitted slot it backs. -1 for none.
+ */
+export function slotOf(params: Params, state: { committed?: number; taken?: number } | undefined, account: string, now: number): number {
+  const held = holders(params, state?.taken).indexOf(account);
+  if (held >= 0) return held;
+  if (!params.commit_by || Date.parse(params.commit_by) >= now) return -1;
+  return contributorsInOrder(params).findIndex(
+    ([original], i) => !(((state?.committed ?? 0) >> i) & 1) && params.backups?.[original] === account,
+  );
+}
+
 /** Who holds each slot whose delivery is on chain, in contributor order. */
 export const deliveredBy = (params: Params, state?: { delivered?: number; taken?: number }): string[] =>
   holders(params, state?.taken).filter((_, i) => ((state?.delivered ?? 0) >> i) & 1);

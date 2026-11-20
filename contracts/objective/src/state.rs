@@ -442,6 +442,9 @@ pub enum Outcome {
     /// Every contributor delivered, and the acceptance window passed
     /// without a verdict.
     Accepted,
+    /// Every contributor delivered, and the sponsor released the payment
+    /// itself, without the evaluator.
+    Released,
 }
 
 impl From<Verdict> for Outcome {

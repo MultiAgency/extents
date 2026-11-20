@@ -121,18 +121,25 @@ impl State {
             review_hash,
         }: Attestation,
     ) -> Result<Option<Promise>> {
-        if signer_id != params.evaluator {
+        // The evaluator judges either way. The sponsor may only concede: pay
+        // the contributors out of what it funded, which needs nobody's word
+        // but its own.
+        let outcome = if signer_id == params.evaluator {
+            verdict.into()
+        } else if signer_id == params.sponsor && verdict == Verdict::Achieved {
+            Outcome::Released
+        } else {
             return Err(Error::Unauthorized);
-        }
+        };
         if self.deadline < Timestamp::now() {
             return Err(Error::DeadlineExpired);
         }
-        // delivery implies commitment, so achieved and accepted share a
-        // precondition: every slot delivered
+        // delivery implies commitment, so every outcome that pays the
+        // contributors shares a precondition: every slot delivered
         if verdict == Verdict::Achieved && self.delivered != params.all_contributors() {
             return Err(Error::NotDelivered);
         }
-        self.resolve(params, verdict.into(), review_hash)?;
+        self.resolve(params, outcome, review_hash)?;
         self.dispatch(params)
     }
 
@@ -169,7 +176,7 @@ impl State {
 
         let funded = mem::take(&mut self.funded);
         let allocation = match outcome {
-            Outcome::Achieved | Outcome::Accepted => params.split(funded),
+            Outcome::Achieved | Outcome::Accepted | Outcome::Released => params.split(funded),
             Outcome::Failed | Outcome::Expired => vec![(Recipient::Sponsor, funded)],
         };
 
