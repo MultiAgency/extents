@@ -4,6 +4,7 @@ lints.workspace = true
 name = "extents-objective"
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 version = "0.1.0"
 rust-version.workspace = true
 
