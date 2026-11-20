@@ -1,0 +1,121 @@
+{
+  "statement": "Organize a NEAR builders meetup in New York City for at least 30 attendees, with a public event page and a short write-up afterwards. Café or office venue.",
+  "v": 1,
+  "criteria": [
+    {
+      "id": "page",
+      "description": "The event page is public and names the city",
+      "check": {
+        "kind": "live_url",
+        "label": "Event page",
+        "must_contain": "New York"
+      }
+    },
+    {
+      "id": "attendees",
+      "description": "The write-up reports attendance as a plausible number",
+      "check": {
+        "max": 10000,
+        "label": "Attendees",
+        "kind": "numeric_match",
+        "min": 30
+      }
+    },
+    {
+      "id": "rating",
+      "description": "The write-up reports the average session rating out of 100",
+      "check": {
+        "kind": "numeric_match",
+        "label": "Average rating",
+        "min": 0,
+        "max": 99.5
+      }
+    },
+    {
+      "id": "sources",
+      "description": "The write-up cites the event page and the registration list",
+      "check": {
+        "kind": "sources",
+        "min": 2,
+        "figures": true
+      }
+    },
+    {
+      "id": "photos",
+      "description": "Photos from the event",
+      "check": {
+        "kind": "media",
+        "kinds": [
+          "image"
+        ],
+        "min": 3
+      }
+    },
+    {
+      "id": "summary",
+      "description": "The write-up has an Agenda section",
+      "check": {
+        "kind": "contains",
+        "phrase": "## Agenda",
+        "absent": false
+      }
+    },
+    {
+      "id": "files",
+      "description": "The write-up and the attendance export",
+      "check": {
+        "kind": "files",
+        "paths": [
+          "writeup.md",
+          "data/attendance.csv"
+        ]
+      }
+    },
+    {
+      "id": "attendance-json",
+      "description": "Attendance as JSON with a count",
+      "check": {
+        "kind": "schema",
+        "json_schema": {
+          "type": "object",
+          "required": [
+            "count"
+          ],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "useful",
+      "description": "The write-up would let someone else run the same meetup",
+      "check": {
+        "kind": "llm_judge",
+        "question": "Does the write-up give enough detail (venue, agenda, costs) for someone else to run the same meetup?",
+        "models": ["example/model"]
+      }
+    },
+    {
+      "id": "judge0",
+      "description": "another judgement",
+      "check": {
+        "kind": "llm_judge",
+        "question": "Is it good?",
+        "models": ["example/model"]
+      }
+    },
+    {
+      "id": "judge1",
+      "description": "another judgement",
+      "check": {
+        "kind": "llm_judge",
+        "question": "Is it good?",
+        "models": ["example/model"]
+      }
+    }
+  ]
+}

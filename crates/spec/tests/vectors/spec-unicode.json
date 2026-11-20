@@ -1,0 +1,28 @@
+{
+  "v": 1,
+  "statement": "Café meetup in Zürich — 東京 too, with a 🎉 for good measure.",
+  "criteria": [
+    {
+      "id": "shape",
+      "description": "Keys outside the Basic Multilingual Plane sort by UTF-16 code unit: 😀 before ",
+      "check": {
+        "kind": "schema",
+        "json_schema": {
+          "type": "object",
+          "properties": {
+            "": { "type": "string" },
+            "😀": { "type": "string" },
+            "é": { "type": "number" },
+            "z": { "type": "number" },
+            "Z": { "type": "number" }
+          }
+        }
+      }
+    },
+    {
+      "id": "range",
+      "description": "Floats JCS writes in exponent form",
+      "check": { "kind": "numeric_match", "label": "Ratio", "min": 1e-7, "max": 1e21 }
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+import { afterEach, expect, test, vi } from "vitest";
+import vectors from "../../contracts/objective/tests/vectors/params.json" with { type: "json" };
+import { deployObjective } from "../src/server/chain.ts";
+import { objectiveAccountId, type Params } from "../src/shared/params.ts";
+
+const calls = vi.hoisted(() => ({
+  exists: vi.fn(),
+  stateInit: vi.fn(),
+  send: vi.fn(),
+}));
+
+vi.mock("near-kit", async (original) => ({
+  ...(await original<typeof import("near-kit")>()),
+  Near: class {
+    accountExists = calls.exists;
+    transaction() {
+      return {
+        stateInit: (...args: unknown[]) => {
+          calls.stateInit(...args);
+          return { send: calls.send };
+        },
+      };
+    }
+  },
+}));
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.clearAllMocks();
+});
+
+test("deploy needs only configured code identity and credentials, with no local release files", async () => {
+  const vector = vectors[0]!;
+  const params = vector.params as unknown as Params;
+  vi.stubEnv("PUBLIC_OBJECTIVE_CODE_HASH", vector.code_hash);
+  vi.stubEnv("DEPLOYER_ACCOUNT_ID", "deployer.testnet");
+  vi.stubEnv("DEPLOYER_PRIVATE_KEY", "ed25519:mock-key");
+  vi.stubEnv("OBJECTIVE_RELEASE_MANIFEST", undefined);
+  calls.exists.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  calls.send.mockResolvedValue({ transaction: { hash: "deployment-tx" } });
+
+  const account = objectiveAccountId(params, vector.code_hash);
+  expect(await deployObjective(params)).toEqual({ accountId: account, txHash: "deployment-tx" });
+  expect(calls.stateInit).toHaveBeenCalledWith(expect.objectContaining({ code: { codeHash: vector.code_hash }, deposit: 0n }));
+  expect(calls.exists).toHaveBeenNthCalledWith(2, account);
+});
+
+test("an existing derived objective needs no deployer credentials", async () => {
+  const vector = vectors[0]!;
+  vi.stubEnv("PUBLIC_OBJECTIVE_CODE_HASH", vector.code_hash);
+  vi.stubEnv("DEPLOYER_ACCOUNT_ID", undefined);
+  vi.stubEnv("DEPLOYER_PRIVATE_KEY", undefined);
+  calls.exists.mockResolvedValueOnce(true);
+  expect(await deployObjective(vector.params as unknown as Params)).toEqual({ accountId: vector.account_id });
+  expect(calls.stateInit).not.toHaveBeenCalled();
+});

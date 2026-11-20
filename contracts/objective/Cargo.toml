@@ -1,0 +1,70 @@
+lints.workspace = true
+
+[package]
+name = "extents-objective"
+edition.workspace = true
+license.workspace = true
+version = "0.1.0"
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+defuse-borsh-utils.workspace = true
+defuse-fees = { workspace = true, features = ["borsh", "serde"] }
+defuse-time = { workspace = true, features = ["borsh", "serde"] }
+defuse-token-id = { workspace = true, features = ["borsh", "serde"] }
+
+near-sdk = { workspace = true, features = ["deterministic-account-ids"] }
+
+borsh = { workspace = true, features = ["derive"] }
+impl-tools.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_with = { workspace = true, features = ["hex"] }
+thiserror.workspace = true
+
+defuse-auth-call.workspace = true
+defuse-nep245 = { workspace = true, optional = true }
+schemars = { workspace = true, features = ["derive"], optional = true }
+
+[features]
+abi = [
+  "borsh/unstable__schema",
+  "defuse-fees/abi",
+  "defuse-nep245?/abi",
+  "defuse-time/abi",
+  "defuse-token-id/abi",
+  "dep:schemars",
+  "near-sdk/abi",
+  "serde_with/schemars_0_8",
+]
+contract = [
+  "dep:defuse-nep245",
+  "defuse-nep245/near-contract",
+]
+
+[dev-dependencies]
+# `abi` derives `BorshSchema`, which the pinned vectors export
+extents-objective = { path = ".", features = ["abi", "contract"] }
+hex.workspace = true
+# derives NEP-616 account ids for the pinned vectors, as e2e/ does
+near-kit = { version = "0.20.1", default-features = false }
+near-sdk = { workspace = true, features = ["unit-testing"] }
+# the code identity near-sdk's mocked VM reports (`VMContextBuilder::account_contract`)
+near-primitives-core = "0.38"
+serde_json.workspace = true
+
+[package.metadata.near.reproducible_build]
+image = "sourcescan/cargo-near:0.22.0-rust-1.97.1"
+image_digest = "sha256:7467038bdddc86484b73b416eeadce926ff59013e128e53dec5a19e1cb4b2234"
+passed_env = []
+container_build_command = [
+  "cargo",
+  "near",
+  "build",
+  "non-reproducible-wasm",
+  "--locked",
+  "--features=contract",
+  "--abi-features=abi,contract",
+]

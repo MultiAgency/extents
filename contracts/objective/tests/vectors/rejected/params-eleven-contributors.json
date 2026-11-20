@@ -1,0 +1,23 @@
+{
+  "sponsor": "sponsor.near",
+  "token": "nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+  "evaluator": "evaluator.near",
+  "contributors": {
+    "c0.near": 90909,
+    "c1.near": 90909,
+    "c2.near": 90909,
+    "c3.near": 90909,
+    "c4.near": 90909,
+    "c5.near": 90909,
+    "c6.near": 90909,
+    "c7.near": 90909,
+    "c8.near": 90909,
+    "c9.near": 90909,
+    "c10.near": 90910
+  },
+  "deadline": "2027-01-15T08:00:00Z",
+  "acceptance_window_secs": 86400,
+  "spec_hash": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+  "auth_caller": "intents.near",
+  "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+}

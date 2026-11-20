@@ -1,0 +1,17 @@
+{
+  "statement": "Organize a NEAR builders meetup in New York City for at least 30 attendees, with a public event page and a short write-up afterwards. Café or office venue.",
+  "v": 1,
+  "criteria": [
+    {
+      "id": "useful",
+      "description": "The write-up would let someone else run the same meetup",
+      "check": {
+        "kind": "llm_judge",
+        "question": "Does the write-up give enough detail (venue, agenda, costs) for someone else to run the same meetup?",
+        "models": [
+          "example/model"
+        ]
+      }
+    }
+  ]
+}

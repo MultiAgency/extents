@@ -1,0 +1,27 @@
+# Extents
+
+> Escrow for real-world outcomes on NEAR. A sponsor funds an objective in USDC on the NEAR Intents Verifier; it pays the contributors only if an evaluator attests that the objective was achieved against a published spec, and returns everything to the sponsor otherwise. Testnet only, against Tidepool's Verifier (`verifier.tidepool-sandbox.testnet`).
+
+Agents can draft and launch objectives for a sponsor, read their state, check specs, and evaluate deliveries for an evaluator. Agents never sign: every transaction belongs to a wallet or a Sputnik DAO.
+
+## Use it
+
+- [Agent skill](/skill.md): how an agent drafts, deploys and hands an objective to its sponsor to sign, and evaluates one for its evaluator, step by step.
+- MCP server (`/mcp`, streamable HTTP, stateless): tools `draft_objective`, `deploy_objective`, `evaluate_objective`, `propose_spec`, `check_accounts`, `verifier_balance`, `view_objective`.
+- Customer agent (`/api/agent`, AG-UI 1.0 over SSE): the conversational agent this app runs. Send `forwardedProps.account` (the sponsor) and advertise the frontend tool `launch_objective`; the run ends with it pending in `RUN_FINISHED.outcome.pendingToolCallIds`, and its draft streams as `STATE_SNAPSHOT`s.
+- Checks (`/api/check`, AG-UI): a draft report checked against an objective's terms, live. `forwardedProps = {objective, deliverable: {text}}`; each criterion is a `check` tool call, its result a `TOOL_CALL_RESULT`, and `RUN_FINISHED.result` the summary.
+- Evaluation (`/api/evaluate`, AG-UI): the same, over the reports delivered on chain. `forwardedProps = {objective}`; `RUN_FINISHED.result` is `{summary, delivered, review?}`, with the review present when the results support a verdict.
+- `GET /api/objective/{account}`: an objective's on-chain state, its published, hash-checked documents, and `evaluator_dao` (proposal bond, proposers) when its evaluator is a Sputnik DAO.
+
+## Protocol
+
+- Each objective is its own contract at a NEP-616 deterministic address (`0s…`) derived from its `Params`, so the address commits to the terms.
+- Methods: `ob_view`, `ob_commit(params)`, `ob_deliver(params, delivery {hash})`, `ob_attest(params, attestation {verdict, review_hash?})`, `ob_close(params)`, and funding through the Verifier's `mt_transfer_call` with `msg = {"params": …, "action": {"action": "fund"}}`. Only the sponsor's funding is accepted.
+- Events (`EVENT_JSON`, standard `extents-objective`): `funded`, `committed`, `delivered`, `resolved`, `paid`, `lost`, `cleanup`.
+- The spec (`spec_hash` in `Params`) and the review (`review_hash` in the attestation) are JSON documents hashed as SHA-256 of their RFC 8785 canonical form. Criterion kinds: `contains`, `schema`, `numeric_match`, `files`, `live_url`, `sources`, `media`, `llm_judge`.
+- Documents are published with FastData under the objective's own account (`__fastdata_kv`), readable from FastNEAR's KV API, under namespaced keys: `extents/v1/params` and `extents/v1/spec` by the sponsor, `extents/v1/deliverable` (`{text, delivery_tx, delivery_signer}`, verified against a finalized successful delivery event) by each contributor, `extents/v1/review` by the evaluator. A reader trusts a row only when it matches an on-chain commitment or its writer holds the role.
+- A review's verdict follows its results: `achieved` needs every criterion to pass, `failed` needs one to fail. A fetching check that passes carries the SHA-256 of what it fetched. An `llm_judge` names one model or three; each answers once on NEAR AI Cloud with the request `crates/spec` defines, the majority decides, and each call's `llm_calls` entry (criterion, model, answer, hashes) carries NEAR AI's ed25519 signature over `<model>:<sha256(request)>:<sha256(response)>`.
+
+The app does not support launching file-delivery criteria. Network/model uncertainty is skipped, not a failed verdict.
+An unknown funding outcome must be reconciled, never replaced on a timer. The effective attestation deadline is state.deadline.
+Unattributed balances are retained. Receipt keys come from provider HTTPS unless pinned; TEE attestation is not verified.

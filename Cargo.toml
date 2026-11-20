@@ -1,0 +1,56 @@
+[workspace]
+members = ["contracts/objective", "crates/client", "crates/spec", "e2e", "sandbox"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.95.0"
+version = "0.1.0"
+
+[workspace.dependencies]
+extents-client.path = "crates/client"
+extents-objective.path = "contracts/objective"
+extents-spec.path = "crates/spec"
+
+# NEAR Intents is consumed as-is, pinned to one commit; nothing in it is modified.
+defuse-auth-call = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c" }
+defuse-borsh-utils = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c" }
+defuse-fees = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c" }
+defuse-nep245 = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c" }
+defuse-time = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c", default-features = false }
+defuse-token-id = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c", default-features = false }
+
+near-sdk = "5.30.0"
+
+borsh = "1.8.0"
+hex = "0.4"
+impl-tools = "0.13"
+schemars = { version = "0.8", default-features = false }
+serde = "1"
+serde_json = "1"
+serde_with = "3.21"
+thiserror = "2"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(near)"] }
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+as_conversions = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+
+[profile.release]
+codegen-units = 1
+opt-level = 3
+lto = true
+debug = false
+strip = "symbols"
+panic = "abort"
+overflow-checks = true

@@ -1,0 +1,257 @@
+//! The vectors in `tests/vectors` are the cross-language contract: an
+//! implementation in another language agrees with this crate when it
+//! computes the hashes in `expected.json` and rejects every file in
+//! `rejected/`. The expected hashes were computed outside this crate, with
+//! Python's `json.dumps(sort_keys=True, separators=(",", ":"),
+//! ensure_ascii=False)`, which is JCS for these documents (ASCII keys, no
+//! number that JCS would write differently).
+
+use std::{collections::BTreeMap, fs, path::PathBuf};
+
+use sha2::Digest;
+
+use extents_spec::{Error, Review, Spec, judge_request, judged_text};
+use near_account_id::AccountId;
+use serde_json::{Value, json};
+
+fn vector(name: &str) -> Vec<u8> {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/vectors")
+        .join(name);
+    fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+fn expected(name: &str) -> String {
+    let expected: BTreeMap<String, String> =
+        serde_json::from_slice(&vector("expected.json")).unwrap();
+    expected[name].clone()
+}
+
+fn spec() -> Spec {
+    Spec::from_json(&vector("spec.json")).unwrap()
+}
+
+#[test]
+fn spec_hash() {
+    assert_eq!(hex::encode(spec().hash().unwrap()), expected("spec.json"));
+}
+
+/// Keys whose UTF-16 order differs from their code point order, non-ASCII
+/// text, and floats JCS writes in exponent form. The expected hash comes from
+/// Node (ECMAScript serialization plus UTF-16 key order, as RFC 8785
+/// specifies), not Python, whose code point order would differ.
+#[test]
+fn unicode_and_float_spec_hash() {
+    let spec = Spec::from_json(&vector("spec-unicode.json")).unwrap();
+    assert_eq!(
+        hex::encode(spec.hash().unwrap()),
+        expected("spec-unicode.json")
+    );
+}
+
+#[test]
+fn review_hash() {
+    let review = Review::from_json(&vector("review.json"), &spec()).unwrap();
+    assert_eq!(hex::encode(review.hash().unwrap()), expected("review.json"));
+}
+
+#[test]
+fn hash_ignores_layout() {
+    // The vector is pretty-printed with fields out of order; its compact,
+    // reordered serialization must hash the same.
+    let spec = spec();
+    let compact = serde_json::to_vec(&spec).unwrap();
+    assert_eq!(
+        Spec::from_json(&compact).unwrap().hash().unwrap(),
+        spec.hash().unwrap()
+    );
+}
+
+fn rejected_spec(name: &str) -> Error {
+    Spec::from_json(&vector(&format!("rejected/{name}"))).unwrap_err()
+}
+
+fn rejected_review(name: &str) -> Error {
+    Review::from_json(&vector(&format!("rejected/{name}")), &spec()).unwrap_err()
+}
+
+/// A fetching check that found nothing to fetch fails without evidence,
+/// its detail saying why.
+#[test]
+fn a_fetching_check_fails_without_evidence() {
+    let mut review: serde_json::Value = serde_json::from_slice(&vector("review.json")).unwrap();
+    let page = &mut review["results"][0];
+    assert_eq!(page["criterion_id"], "page");
+    page["outcome"] = "fail".into();
+    page["detail"] = "no event page url in any deliverable".into();
+    page["evidence"] = serde_json::json!([]);
+    Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec()).unwrap();
+}
+
+#[test]
+fn rejected_specs() {
+    assert!(matches!(
+        rejected_spec("spec-lone-surrogate.json"),
+        Error::Json(_)
+    ));
+    assert!(matches!(
+        rejected_spec("spec-only-judges.json"),
+        Error::NoScriptCheck
+    ));
+    assert!(matches!(
+        rejected_spec("spec-null-optional.json"),
+        Error::NotNormalForm
+    ));
+    assert!(matches!(
+        rejected_spec("spec-unknown-field.json"),
+        Error::NotNormalForm
+    ));
+    assert!(matches!(
+        rejected_spec("spec-three-judges.json"),
+        Error::TooManyJudges { .. }
+    ));
+    assert!(matches!(
+        rejected_spec("spec-unbounded-number.json"),
+        Error::InvalidCheck { id, .. } if id == "attendees"
+    ));
+}
+
+#[test]
+fn rejected_reviews() {
+    assert!(matches!(
+        rejected_review("review-verdict-mismatch.json"),
+        Error::VerdictMismatch { .. }
+    ));
+    assert!(matches!(
+        rejected_review("review-missing-result.json"),
+        Error::MissingResult(id) if id == "photos"
+    ));
+    assert!(matches!(
+        rejected_review("review-spec-mismatch.json"),
+        Error::SpecMismatch
+    ));
+    assert!(matches!(
+        rejected_review("review-achieved-with-skipped.json"),
+        Error::VerdictMismatch {
+            verdict: "achieved",
+            ..
+        }
+    ));
+    assert!(matches!(
+        rejected_review("review-missing-evidence.json"),
+        Error::MissingEvidence(id) if id == "page"
+    ));
+}
+
+/// The request an `llm_judge` call sends, rebuilt from the deliverables.
+/// The expected hash was computed independently with Node.
+#[test]
+fn judge_request_hash() {
+    let v: Value = serde_json::from_slice(&vector("judge-request.json")).unwrap();
+    let deliverables: Vec<(AccountId, String)> =
+        serde_json::from_value(v["deliverables"].clone()).unwrap();
+    let pairs: Vec<_> = deliverables
+        .iter()
+        .map(|(a, t)| (a.as_ref(), t.as_str()))
+        .collect();
+    let text = judged_text(&pairs);
+    let request = judge_request(
+        v["model"].as_str().unwrap(),
+        v["question"].as_str().unwrap(),
+        &text,
+    )
+    .unwrap();
+    assert_eq!(
+        hex::encode(sha2::Sha256::digest(&request)),
+        v["request_sha256"].as_str().unwrap()
+    );
+}
+
+/// `review.json` with the `useful` result and its call changed.
+fn judged(outcome: &str, call: &Value) -> Result<Review, Error> {
+    let mut review: Value = serde_json::from_slice(&vector("review.json")).unwrap();
+    let results = review["results"].as_array_mut().unwrap();
+    let useful = results
+        .iter_mut()
+        .find(|r| r["criterion_id"] == "useful")
+        .unwrap();
+    useful["outcome"] = outcome.into();
+    review["llm_calls"] = json!([call.clone()]);
+    Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec())
+}
+
+fn call(criterion: &str, model: &str, answer: bool) -> Value {
+    json!({
+        "criterion_id": criterion,
+        "model": model,
+        "answer": answer,
+        "request_sha256": "33".repeat(32),
+        "response_sha256": "44".repeat(32),
+    })
+}
+
+#[test]
+fn a_judged_outcome_follows_its_models() {
+    judged("pass", &call("useful", "example/model", true)).unwrap();
+    judged("fail", &call("useful", "example/model", false)).unwrap();
+    judged("skipped", &call("useful", "example/model", true)).unwrap();
+    assert!(matches!(
+        judged("pass", &call("useful", "example/model", false)),
+        Err(Error::JudgeMismatch(id)) if id == "useful"
+    ));
+    assert!(matches!(
+        judged("pass", &call("useful", "other/model", true)),
+        Err(Error::InvalidCall { .. })
+    ));
+    assert!(matches!(
+        judged("pass", &call("summary", "example/model", true)),
+        Err(Error::InvalidCall { .. })
+    ));
+}
+
+#[test]
+fn a_judged_outcome_needs_its_calls() {
+    let mut review: Value = serde_json::from_slice(&vector("review.json")).unwrap();
+    for r in review["results"].as_array_mut().unwrap() {
+        if r["criterion_id"] == "useful" {
+            r["outcome"] = "pass".into();
+        }
+    }
+    review["llm_calls"] = json!([]);
+    assert!(matches!(
+        Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec()),
+        Err(Error::InvalidCall { .. })
+    ));
+}
+
+#[test]
+fn a_judge_needs_one_model_or_three() {
+    let mut spec: Value = serde_json::from_slice(&vector("spec.json")).unwrap();
+    let useful = spec["criteria"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|c| c["id"] == "useful")
+        .unwrap();
+    useful["check"]["models"] = json!(["a/model", "b/model"]);
+    assert!(matches!(
+        Spec::from_json(&serde_json::to_vec(&spec).unwrap()),
+        Err(Error::InvalidCheck { .. })
+    ));
+}
+
+#[test]
+fn a_pinned_build_must_be_recorded() {
+    let mut spec: Value = serde_json::from_slice(&vector("spec.json")).unwrap();
+    spec["evaluator_build"] = "ab".repeat(32).into();
+    let pinned = Spec::from_json(&serde_json::to_vec(&spec).unwrap()).unwrap();
+    let mut review: Value = serde_json::from_slice(&vector("review.json")).unwrap();
+    review["spec_hash"] = hex::encode(pinned.hash().unwrap()).into();
+    let without = serde_json::to_vec(&review).unwrap();
+    assert!(matches!(
+        Review::from_json(&without, &pinned),
+        Err(Error::EvaluatorBuildMismatch)
+    ));
+    review["evaluator_build"] = "ab".repeat(32).into();
+    Review::from_json(&serde_json::to_vec(&review).unwrap(), &pinned).unwrap();
+}

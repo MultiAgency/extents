@@ -1,0 +1,636 @@
+/**
+ * An objective's own page, `/o/<address>`: public, so anyone can see the
+ * escrow and its terms; a contributor commits here, checks their work
+ * against the spec live, and delivers it; the evaluator judges what was
+ * delivered and attests the verdict.
+ */
+import { HttpAgent } from "@ag-ui/client";
+import type { Near } from "near-kit";
+import { useCallback, useEffect, useState } from "react";
+
+import { attestationOf, attestProposal, mayPropose, type Dao } from "../shared/attest.ts";
+import { calls } from "../shared/calls.ts";
+import { deliveredBy, deliveryHash, holders, verifyReports } from "../shared/delivery.ts";
+import type { DraftState } from "../shared/draft.ts";
+import { formatUnits } from "../shared/objective.ts";
+import { contributorsInOrder, PIPS_MAX, timestampNanos, type Params } from "../shared/params.ts";
+import { reportHash, type CheckSummary, type Delivered } from "../shared/review.ts";
+import { parseReview, reviewHash, type Review, type Spec } from "../shared/spec.ts";
+import { fileAttestation, filingKey, HashlessFiling, setAside } from "./dao-proposal.ts";
+import { Plat } from "./plat.tsx";
+import { finalStatus, publishFastData, sign } from "./send.ts";
+import { useWallet } from "./wallet.tsx";
+
+interface View {
+  deployed: boolean;
+  state?: {
+    funded?: string;
+    committed?: number;
+    delivered?: number;
+    taken?: number;
+    deadline?: string;
+    outcome?: string;
+    owed?: Record<string, string>;
+    in_flight?: number;
+  };
+  documents?: { params: Params; spec: Spec; unsupported?: string };
+  evaluator_dao?: Dao;
+  verifier_balance?: string;
+}
+
+const bit = (mask: number | undefined, i: number) => ((mask ?? 0) >> i) & 1;
+
+function draftOf({ params, spec }: { params: Params; spec: Spec }, funded: bigint): DraftState {
+  return {
+    terms: {
+      statement: spec.statement,
+      criteria: spec.criteria.map((c) => ({ id: c.id, kind: c.check.kind, description: c.description })),
+      contributors: Object.fromEntries(contributorsInOrder(params).map(([a, pips]) => [a, pips / (PIPS_MAX / 100)])),
+      evaluator: params.evaluator,
+      deadline: params.deadline,
+      ...(funded > 0n ? { amount: formatUnits(funded) } : {}),
+      ...(params.acceptance_window_secs ? { acceptance_hours: params.acceptance_window_secs / 3600 } : {}),
+    },
+    accounts: {},
+  };
+}
+
+export function ObjectivePage({ address }: { address: string }) {
+  const { accountId, near } = useWallet();
+  const [view, setView] = useState<View>();
+  const [error, setError] = useState<string>();
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/objective/${address}`, { cache: "no-store" });
+      const body = await res.json();
+      if (!res.ok) setError(body.error ?? "Couldn't read this objective.");
+      else {
+        setError(undefined);
+        setView(body as View);
+      }
+    } catch {
+      setError("Could not read this objective. Refresh to try again.");
+    }
+  }, [address]);
+  useEffect(() => void refresh(), [refresh]);
+
+  if (error)
+    return (
+      <div className="flex flex-col gap-3">
+        <p role="alert" className="text-alert">
+          {error}
+        </p>
+        <button type="button" onClick={() => void refresh()} className="self-start rounded-full border border-ink px-5 py-2.5">
+          Retry reading objective
+        </button>
+      </div>
+    );
+  if (!view) return <p className="text-ink-soft">Reading the objective…</p>;
+  if (!view.deployed || !view.documents)
+    return (
+      <p className="text-ink-soft">
+        No objective with published terms lives at {address}. It may not be launched yet, or it was settled and closed.
+      </p>
+    );
+
+  const docs = view.documents;
+  const funded = BigInt(view.state?.funded ?? "0");
+  const order = holders(docs.params, view.state?.taken);
+  const originals = contributorsInOrder(docs.params).map(([a]) => a);
+  let index = accountId ? order.indexOf(accountId) : -1;
+  if (index < 0 && accountId && docs.params.commit_by && Date.parse(docs.params.commit_by) < Date.now())
+    index = originals.findIndex((original, i) => !bit(view.state?.committed, i) && docs.params.backups?.[original] === accountId);
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:items-start">
+      <Plat draft={draftOf(docs, funded)} deployed={{ address, funded: funded > 0n, outcome: view.state?.outcome }} />
+      <div className="flex flex-col gap-6">
+        <button type="button" onClick={() => void refresh()} className="self-start text-sm underline underline-offset-4">
+          Refresh objective
+        </button>
+        {docs.unsupported && (
+          <p role="alert" className="text-alert">
+            This app can't check or evaluate these terms: {docs.unsupported}. They are still the objective's terms, and its evaluator can
+            attest with other tools.
+          </p>
+        )}
+        {view.state?.outcome && (
+          <p className="font-display text-xl font-semibold">
+            {`Resolved: ${view.state.outcome}. `}
+            {view.state.in_flight
+              ? "Payouts or balance checks are pending."
+              : Object.values(view.state.owed ?? {}).some((amount) => BigInt(amount) > 0n)
+                ? "Some payouts need a retry."
+                : "No payouts remain outstanding."}
+          </p>
+        )}
+        {near && accountId && (view.state?.outcome || Date.parse(view.state?.deadline ?? docs.params.deadline) < Date.now()) && (
+          <CloseObjective address={address} account={accountId} params={docs.params} near={near} onChange={refresh} />
+        )}
+        <section aria-label="Contributors" className="flex flex-col gap-2">
+          <h2 className="font-display text-lg font-semibold">Who has committed</h2>
+          <ul className="flex flex-col gap-1">
+            {order.map((a, i) => (
+              <li key={a} className="flex items-baseline justify-between gap-3">
+                <span className="font-mono text-sm">{a}</span>
+                <span className={bit(view.state?.delivered, i) ? "text-sealed" : bit(view.state?.committed, i) ? "" : "text-ink-soft"}>
+                  {bit(view.state?.delivered, i) ? "delivered" : bit(view.state?.committed, i) ? "committed" : "not yet"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+        {index >= 0 && near && accountId && !view.state?.outcome && (
+          <Contributor
+            address={address}
+            account={accountId}
+            params={docs.params}
+            committed={Boolean(bit(view.state?.committed, index))}
+            delivered={Boolean(bit(view.state?.delivered, index))}
+            funded={funded > 0n}
+            near={near}
+            onChange={refresh}
+          />
+        )}
+        {near &&
+        accountId &&
+        !view.state?.outcome &&
+        (accountId === docs.params.evaluator || (view.evaluator_dao && mayPropose(view.evaluator_dao, accountId))) ? (
+          <Evaluator
+            address={address}
+            account={accountId}
+            params={docs.params}
+            spec={docs.spec}
+            dao={accountId === docs.params.evaluator ? undefined : view.evaluator_dao}
+            effectiveDeadline={view.state?.deadline ?? docs.params.deadline}
+            deliveredBy={deliveredBy(docs.params, view.state)}
+            allCommitted={order.every((_, i) => bit(view.state?.committed, i))}
+            near={near}
+            onChange={refresh}
+          />
+        ) : (
+          index < 0 && <Checker address={address} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Contributor(props: {
+  address: string;
+  account: string;
+  params: Params;
+  committed: boolean;
+  delivered: boolean;
+  funded: boolean;
+  near: Near;
+  onChange: () => Promise<void>;
+}) {
+  const { address, account, params, committed, delivered, funded, near, onChange } = props;
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string>();
+  const proofKey = `extents:delivery:${address}:${account}`;
+  const [saved] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(proofKey) ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [report, setReport] = useState<string>(typeof saved.text === "string" ? saved.text : "");
+  const [deliveryTx, setDeliveryTx] = useState<string>(typeof saved.delivery_tx === "string" ? saved.delivery_tx : "");
+
+  const publishProof = async (tx: string) => {
+    if (deliveryHash(await finalStatus(near, tx, account), address, account) !== reportHash(report))
+      throw new Error("This report does not match the successful delivery in that transaction.");
+    await publishFastData(near, account, address, { deliverable: { text: report, delivery_tx: tx, delivery_signer: account } });
+  };
+
+  const act = (what: () => Promise<unknown>) => async () => {
+    setBusy(true);
+    setFailure(undefined);
+    try {
+      await what();
+      await onChange();
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const commit = act(() => sign(near, account, calls.commit(address, params)));
+  const deliver = act(async () => {
+    localStorage.setItem(proofKey, JSON.stringify({ text: report }));
+    const hash = reportHash(report);
+    const tx = (await sign(near, account, calls.deliver(address, params, hash), "FINAL")).transaction?.hash;
+    if (!tx) throw new Error("The wallet didn't return the delivery transaction; check your wallet's history before delivering again.");
+    setDeliveryTx(tx);
+    localStorage.setItem(proofKey, JSON.stringify({ text: report, delivery_tx: tx }));
+    await publishProof(tx);
+  });
+
+  return (
+    <section aria-label="Your part" className="flex flex-col gap-4 rounded-[18px] border border-rule bg-sheet p-5">
+      <h2 className="font-display text-lg font-semibold">Your part</h2>
+      {!committed ? (
+        <>
+          <p className="text-ink-soft">
+            Commit to deliver your part. {funded ? "The money is already in escrow." : "The sponsor hasn't funded it yet."} Committing can't
+            be undone.
+          </p>
+          <button
+            type="button"
+            aria-disabled={busy || undefined}
+            onClick={() => !busy && void commit()}
+            className="self-start rounded-full bg-action px-5 py-2.5 font-display font-semibold text-action-ink aria-disabled:opacity-60"
+          >
+            {busy ? "Signing…" : "Commit"}
+          </button>
+        </>
+      ) : delivered ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-sealed">You delivered. The evaluator needs the matching report and finalized delivery transaction.</p>
+          <label className="flex flex-col gap-2">
+            Delivered report
+            <textarea
+              value={report}
+              onChange={(e) => setReport(e.target.value)}
+              rows={6}
+              className="rounded-xl border border-rule bg-paper px-3 py-2"
+            />
+          </label>
+          <label className="flex flex-col gap-2">
+            Delivery transaction hash
+            <input
+              value={deliveryTx}
+              onChange={(e) => setDeliveryTx(e.target.value)}
+              className="rounded-xl border border-rule bg-paper px-3 py-2 font-mono"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={busy || !report.trim() || !deliveryTx.trim()}
+            onClick={() => void act(() => publishProof(deliveryTx.trim()))()}
+            className="self-start rounded-full border border-ink px-5 py-2.5 font-display font-semibold disabled:opacity-50"
+          >
+            Publish delivery proof
+          </button>
+        </div>
+      ) : (
+        <>
+          <label className="flex flex-col gap-2">
+            <span className="text-ink-soft">Your report, in Markdown: links, photos and lines like “Attendees: 34”.</span>
+            <textarea
+              value={report}
+              onChange={(e) => setReport(e.target.value)}
+              rows={8}
+              className="rounded-xl border border-rule bg-paper px-3 py-2 font-mono text-sm outline-none focus:border-action"
+            />
+          </label>
+          <Checklist address={address} report={report} />
+          <button
+            type="button"
+            aria-disabled={busy || !report.trim() || undefined}
+            onClick={() => !busy && report.trim() && void deliver()}
+            className="self-start rounded-full bg-action px-5 py-2.5 font-display font-semibold text-action-ink aria-disabled:opacity-60"
+          >
+            {busy ? "Signing…" : "Deliver"}
+          </button>
+        </>
+      )}
+      <Alert>{failure}</Alert>
+    </section>
+  );
+}
+
+/** For visitors: try a report against the terms without being a contributor. */
+function Checker({ address }: { address: string }) {
+  const [report, setReport] = useState("");
+  return (
+    <section aria-label="Check a report" className="flex flex-col gap-3">
+      <h2 className="font-display text-lg font-semibold">Check a report against these terms</h2>
+      <textarea
+        aria-label="Report"
+        value={report}
+        onChange={(e) => setReport(e.target.value)}
+        rows={6}
+        className="rounded-xl border border-rule bg-sheet px-3 py-2 font-mono text-sm outline-none focus:border-action"
+      />
+      <Checklist address={address} report={report} />
+    </section>
+  );
+}
+
+interface Row {
+  id: string;
+  description: string;
+  outcome?: "pass" | "fail" | "skipped";
+  detail?: string;
+}
+
+const MARK = { pass: "✓", fail: "✗", skipped: "–" } as const;
+
+/** An AG-UI check run: every criterion as a row, resolving live, then the run's result. */
+function useCheckRun<Result>(url: string) {
+  const [rows, setRows] = useState<Row[]>([]);
+  const [result, setResult] = useState<Result>();
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const run = async (forwardedProps: unknown) => {
+    setRunning(true);
+    setRows([]);
+    setResult(undefined);
+    setError(undefined);
+    await new HttpAgent({ url })
+      .runAgent(
+        { forwardedProps },
+        {
+          onToolCallEndEvent: ({ event, toolCallArgs }) => {
+            const a = toolCallArgs as { description?: string };
+            setRows((r) => [...r, { id: event.toolCallId, description: a.description ?? event.toolCallId }]);
+          },
+          onToolCallResultEvent: ({ event }) => {
+            const res = JSON.parse(event.content as string) as { criterion_id: string; outcome: Row["outcome"]; detail: string };
+            setRows((r) => r.map((row) => (row.id === res.criterion_id ? { ...row, outcome: res.outcome, detail: res.detail } : row)));
+          },
+          onRunFinishedEvent: ({ event }) => setResult((event as { result?: Result }).result),
+          onRunErrorEvent: ({ event }) => setError(event.message),
+        },
+      )
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    setRunning(false);
+  };
+  return { rows, result, running, error, run };
+}
+
+function CheckRows({ rows }: { rows: Row[] }) {
+  if (!rows.length) return null;
+  return (
+    <ul aria-label="Checks" className="flex flex-col gap-2">
+      {rows.map((r) => (
+        <li key={r.id} className="flex gap-3">
+          <span
+            aria-hidden="true"
+            className={`w-4 shrink-0 text-center ${r.outcome === "pass" ? "text-sealed" : r.outcome === "fail" ? "text-alert" : r.outcome ? "text-ink-soft" : "working text-action"}`}
+          >
+            {r.outcome ? MARK[r.outcome] : "◌"}
+          </span>
+          <span>
+            {r.description} <span className="sr-only">({r.outcome ?? "checking"})</span>
+            {r.detail && <span className="block text-sm text-ink-soft">{r.detail}</span>}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const Alert = ({ children }: { children?: string }) =>
+  children ? (
+    <p role="alert" className="text-alert">
+      {children}
+    </p>
+  ) : null;
+
+/** Runs the spec's checks on the report and shows each criterion resolve, live. */
+function Checklist({ address, report }: { address: string; report: string }) {
+  const { rows, result: summary, running, error, run } = useCheckRun<CheckSummary>("/api/check");
+  return (
+    <div className="flex flex-col gap-3">
+      <button
+        type="button"
+        aria-disabled={running || !report.trim() || undefined}
+        onClick={() => !running && report.trim() && void run({ objective: address, deliverable: { text: report } })}
+        className="self-start rounded-full border border-ink px-5 py-2.5 font-display font-semibold aria-disabled:opacity-50"
+      >
+        {running ? "Checking…" : "Check my work"}
+      </button>
+      <CheckRows rows={rows} />
+      <p role="status" aria-live="polite" className={summary?.failed ? "text-alert" : "text-sealed"}>
+        {summary
+          ? summary.failed
+            ? `${summary.failed} of ${summary.passed + summary.failed + summary.skipped} checks fail. Fix them before you deliver.`
+            : summary.passed
+              ? `Every check that can run passes${summary.skipped ? ` (${summary.skipped} left to the evaluator)` : ""}. Ready to deliver.`
+              : "Nothing could be checked yet."
+          : ""}
+      </p>
+      <Alert>{error}</Alert>
+    </div>
+  );
+}
+
+interface Evaluation {
+  summary: CheckSummary;
+  delivered: Delivered[];
+  review?: Review;
+}
+
+/**
+ * The evaluator's part: judge what was delivered, then publish the review
+ * and attest its hash, directly or as a proposal to the evaluator DAO. The
+ * hash signed is recomputed here from the review, never taken from the server.
+ */
+function Evaluator(props: {
+  address: string;
+  account: string;
+  params: Params;
+  spec: Spec;
+  dao?: Dao;
+  allCommitted: boolean;
+  effectiveDeadline: string;
+  deliveredBy: string[];
+  near: Near;
+  onChange: () => Promise<void>;
+}) {
+  const { address, account, params, spec, dao, allCommitted, effectiveDeadline, deliveredBy, near, onChange } = props;
+  const { rows, result, running, error, run } = useCheckRun<Evaluation>("/api/evaluate");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string>();
+  /** The DAO proposals that carry this attestation, oldest first; more than one is a duplicate. */
+  const [proposed, setProposed] = useState<number[]>();
+  /** A filing this browser sent with no transaction hash to settle it by. */
+  const [hashless, setHashless] = useState(false);
+
+  let review: Review | undefined;
+  let invalid: string | undefined;
+  try {
+    review = result?.review && parseReview(result.review, spec);
+    if (review && result) {
+      const { delivered } = result;
+      if (review.objective !== address) throw new Error("The review names a different objective");
+      verifyReports(deliveredBy, delivered);
+      if (
+        review.deliverables.length !== delivered.length ||
+        review.deliverables.some((d) => !delivered.some((r) => r.contributor === d.contributor && r.delivery_hash === d.sha256))
+      )
+        throw new Error("The review does not name the verified reports");
+    }
+  } catch (e) {
+    review = undefined;
+    invalid = `The review doesn't validate, so it can't be attested: ${e instanceof Error ? e.message : e}`;
+  }
+  const expired = timestampNanos(effectiveDeadline) < BigInt(Date.now()) * 1_000_000n;
+  const blocked = expired
+    ? "The deadline has passed, so the evaluator can no longer attest. Anyone can now close the objective."
+    : review?.verdict === "achieved" && !allCommitted
+      ? "Not every contributor committed, so the contract accepts only a failed verdict."
+      : undefined;
+
+  const attest = async () => {
+    if (!review || !result) return;
+    setBusy(true);
+    setFailure(undefined);
+    try {
+      await Promise.all(
+        result.delivered.map(async (d) => {
+          if (!d.delivery_tx || !d.delivery_signer) throw new Error("The delivery transaction proof is missing");
+          if (deliveryHash(await finalStatus(near, d.delivery_tx, d.delivery_signer), address, d.contributor) !== d.delivery_hash)
+            throw new Error("The delivery proof did not verify; no attestation was sent");
+        }),
+      );
+      // published for anyone to check against the attested hash
+      await publishFastData(near, account, address, { review });
+      if (dao) {
+        try {
+          setProposed(await fileAttestation(near, account, calls.propose(address, params, attestationOf(review), dao.proposal_bond)));
+          setHashless(false);
+        } catch (e) {
+          setHashless(e instanceof HashlessFiling);
+          throw e;
+        }
+      } else {
+        await sign(near, account, calls.attest(address, params, attestationOf(review)));
+      }
+      await onChange();
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const summary = result?.summary;
+  return (
+    <section aria-label="Evaluate" className="flex flex-col gap-4 rounded-[18px] border border-rule bg-sheet p-5">
+      <h2 className="font-display text-lg font-semibold">Evaluate</h2>
+      <p className="text-ink-soft">
+        {dao
+          ? `You can propose the verdict for ${params.evaluator}. It takes effect once the DAO approves it, before the deadline.`
+          : "Judge what was delivered against the terms. Your verdict settles the escrow."}
+      </p>
+      <button
+        type="button"
+        aria-disabled={running || undefined}
+        onClick={() => !running && void run({ objective: address })}
+        className="self-start rounded-full border border-ink px-5 py-2.5 font-display font-semibold aria-disabled:opacity-50"
+      >
+        {running ? "Checking…" : result ? "Check again" : "Check the deliveries"}
+      </button>
+      <CheckRows rows={rows} />
+      <p role="status" aria-live="polite">
+        {summary &&
+          (review
+            ? `The results support ${review.verdict}: ${summary.passed} passed, ${summary.failed} failed. Judged ${result?.delivered
+                .map((d) => d.contributor)
+                .join(", ")}.`
+            : `${summary.skipped} ${summary.skipped === 1 ? "check" : "checks"} couldn't run, so the results support no verdict yet. Check again.`)}
+      </p>
+      {review && !blocked && proposed === undefined && (
+        <>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            <dt className="text-ink-soft">Review hash</dt>
+            <dd className="font-mono [overflow-wrap:anywhere]">{reviewHash(review)}</dd>
+            {review.llm_calls.length > 0 && (
+              <>
+                <dt className="text-ink-soft">Model calls</dt>
+                <dd>
+                  {review.llm_calls.length} with provider receipts ({review.llm_calls[0]!.model}); TEE attestation is not verified
+                </dd>
+              </>
+            )}
+          </dl>
+          <button
+            type="button"
+            aria-disabled={busy || undefined}
+            onClick={() => !busy && void attest()}
+            className={`self-start rounded-full px-5 py-2.5 font-display font-semibold aria-disabled:opacity-60 ${review.verdict === "achieved" ? "bg-sealed text-action-ink" : "bg-alert text-action-ink"}`}
+          >
+            {busy ? "Signing…" : dao ? `Propose ${review.verdict} to ${params.evaluator}` : `Attest ${review.verdict}`}
+          </button>
+        </>
+      )}
+      {proposed !== undefined && (
+        <p className="text-sealed">
+          Proposed as #{proposed[0]}. The verdict settles the escrow once {params.evaluator} approves it.
+          {proposed.length > 1 &&
+            ` #${proposed.slice(1).join(", #")} duplicate${proposed.length > 2 ? "" : "s"} it; ask ${params.evaluator} to reject the extra proposals.`}
+        </p>
+      )}
+      {review && dao && hashless && proposed === undefined && (
+        <button
+          type="button"
+          onClick={() => {
+            setAside(filingKey(params.evaluator, attestProposal(address, params, attestationOf(review))));
+            setHashless(false);
+            setFailure(undefined);
+          }}
+          className="self-start rounded-full border border-alert px-5 py-2.5 font-display font-semibold text-alert"
+        >
+          File again anyway: posts another bond and may create a duplicate proposal
+        </button>
+      )}
+      <Alert>{blocked && review ? blocked : undefined}</Alert>
+      <Alert>{invalid}</Alert>
+      <Alert>{error}</Alert>
+      <Alert>{failure}</Alert>
+    </section>
+  );
+}
+
+/** Permissionless expiry, payout retry, and cleanup; an unresolved callback stays pending. */
+function CloseObjective({
+  address,
+  account,
+  params,
+  near,
+  onChange,
+}: {
+  address: string;
+  account: string;
+  params: Params;
+  near: Near;
+  onChange: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string>();
+  const close = async () => {
+    setBusy(true);
+    setFailure(undefined);
+    try {
+      await sign(near, account, calls.close(address, params), "FINAL");
+      await onChange();
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section aria-label="Settlement" className="flex flex-col gap-3">
+      <p>Close an expired objective, retry failed payouts, or check whether settlement is complete.</p>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void close()}
+        className="self-start rounded-full border border-ink px-5 py-2.5 font-display font-semibold disabled:opacity-50"
+      >
+        {busy ? "Checking settlement…" : "Close or retry payouts"}
+      </button>
+      <Alert>{failure}</Alert>
+    </section>
+  );
+}

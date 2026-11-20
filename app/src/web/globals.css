@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/* Survey vellum and ink: cool, mineral, with one action blue and one sealed green. */
+:root {
+  --paper: #e6ecec;
+  --sheet: #f3f6f5;
+  --ink: #1a2b33;
+  --ink-soft: #4a5d66;
+  --contour: #8fa9b0;
+  --rule: #c9d4d6;
+  --action: #2b59c3;
+  --action-ink: #ffffff;
+  --sealed: #1b7254;
+  --alert: #b3261e;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #111c21;
+    --sheet: #172429;
+    --ink: #dfe8ea;
+    --ink-soft: #9fb3ba;
+    --contour: #3f5a63;
+    --rule: #2a3b42;
+    --action: #7d9cf0;
+    --action-ink: #0d1a33;
+    --sealed: #5cc59c;
+    --alert: #f2a199;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-sheet: var(--sheet);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-contour: var(--contour);
+  --color-rule: var(--rule);
+  --color-action: var(--action);
+  --color-action-ink: var(--action-ink);
+  --color-sealed: var(--sealed);
+  --color-alert: var(--alert);
+  --font-display: "Barlow Semi Condensed", "Barlow", system-ui, sans-serif;
+  --font-sans: "Barlow", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.55;
+}
+
+:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+
+/* The one orchestrated moment: when an objective is funded, its terrain inks in. */
+@keyframes ink-in {
+  from {
+    stroke-dashoffset: 1;
+    opacity: 0.35;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+.terrain-sealed path {
+  stroke-dasharray: 1;
+  animation: ink-in 1.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes working {
+  50% {
+    opacity: 0.35;
+  }
+}
+.working {
+  animation: working 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .terrain-sealed path,
+  .working {
+    animation: none;
+  }
+}

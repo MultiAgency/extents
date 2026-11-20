@@ -1,0 +1,14 @@
+{
+  "sponsor": "sponsor.near",
+  "token": "nep245:intents.near:nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1",
+  "evaluator": "evaluator.near",
+  "contributors": {
+    "alice.near": 700000,
+    "bob.near": 200000
+  },
+  "deadline": "2027-01-15T08:00:00Z",
+  "acceptance_window_secs": 86400,
+  "spec_hash": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+  "auth_caller": "intents.near",
+  "salt": "0101010101010101010101010101010101010101010101010101010101010101"
+}

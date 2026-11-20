@@ -1,0 +1,9 @@
+/target
+/res
+.env*
+!.env.example
+.DS_Store
+/.agents
+/skills-lock.json
+
+/e2e/results/*/

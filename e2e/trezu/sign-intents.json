@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "id": "sign-intents",
+  "title": "Sign NEAR Intents",
+  "description": "Signs a NEAR Intents payload with this DAO's account on the Verifier (the MPC key on path agent-owner). Prepare both fields with `extents-e2e dao prepare`, and check the filed proposal with `extents-e2e dao verify <id>` before voting.",
+  "summary": "Sign NEAR Intents payload {{hash}}",
+  "binding": {
+    "receiver_id": "v1.signer-prod.testnet",
+    "method_name": "sign",
+    "deposit": "1",
+    "gas": "100000000000000"
+  },
+  "fields": [
+    {
+      "name": "intent",
+      "label": "Intent payload",
+      "type": "text",
+      "required": true,
+      "help": "The NEP-413 payload to sign, as JSON: {\"message\", \"nonce\", \"recipient\"}. Voters can read it here; the hash below must be its NEP-413 hash."
+    },
+    {
+      "name": "hash",
+      "label": "NEP-413 hash",
+      "type": "text",
+      "required": true,
+      "help": "The payload's NEP-413 hash, in hex.",
+      "validation": { "pattern": "^[0-9a-f]{64}$" }
+    }
+  ],
+  "args": {
+    "request": {
+      "path": "agent-owner",
+      "payload_v2": { "Eddsa": "{{hash}}" },
+      "domain_id": 1
+    },
+    "intent": "{{intent}}"
+  }
+}

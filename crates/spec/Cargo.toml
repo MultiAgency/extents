@@ -1,0 +1,22 @@
+[package]
+name = "extents-spec"
+description = "Off-chain formats behind extents-objective's spec_hash and review_hash"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+hex.workspace = true
+jsonschema = { version = "0.61", default-features = false }
+near-account-id = { version = "3", features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_json_canonicalizer = "0.4"
+serde_with = { workspace = true, features = ["hex"] }
+sha2 = "0.10"
+thiserror.workspace = true
+
+[lints]
+workspace = true

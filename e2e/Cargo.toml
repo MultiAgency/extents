@@ -1,0 +1,33 @@
+[package]
+name = "extents-e2e"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+extents-client.workspace = true
+extents-objective.workspace = true
+extents-spec.workspace = true
+# lets the objective crate's types (`Params::hash`) run natively
+near-sdk = { workspace = true, features = ["non-contract-usage"] }
+
+near-kit = { version = "0.20.1", features = ["file-signer"] }
+
+anyhow = "1"
+base64 = "0.22"
+bs58 = "0.5"
+clap = { version = "4", features = ["derive", "env"] }
+dotenvy = "0.15"
+hex.workspace = true
+rand = "0.9"
+# the client near-kit uses; only to add the API key header
+reqwest = { version = "0.13", default-features = false }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[lints]
+workspace = true

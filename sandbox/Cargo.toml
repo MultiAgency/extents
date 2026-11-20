@@ -1,0 +1,31 @@
+[package]
+name = "extents-sandbox"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+extents-client.workspace = true
+extents-objective.workspace = true
+# lets the objective crate's types (`Params::hash`) run natively
+near-sdk = { workspace = true, features = ["non-contract-usage"] }
+
+near-kit = { version = "0.20.1", default-features = false, features = ["rpc"] }
+near-kit-sandbox = "0.20.1"
+
+anyhow = "1"
+# Unified with near-kit's TLS-enabled reqwest; fetches pinned code by URL.
+reqwest = { version = "0.13", default-features = false }
+rand = "0.9"
+serde_json.workspace = true
+sha2 = "0.10"
+hex.workspace = true
+tokio = { version = "1", features = ["time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

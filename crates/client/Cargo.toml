@@ -1,0 +1,25 @@
+[package]
+name = "extents-client"
+description = "Calls to an Extents objective, and signed intents in the wire format of the NEAR Intents Verifier v0.4.5"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+extents-objective.workspace = true
+
+near-kit = { version = "0.20.1", default-features = false }
+# host-side use of the contract's types (Params, hashing)
+near-sdk = { workspace = true, features = ["non-contract-usage"] }
+
+anyhow = "1"
+base64 = "0.22"
+borsh = { workspace = true, features = ["derive"] }
+hex.workspace = true
+rand = "0.9"
+serde_json.workspace = true
+
+[lints]
+workspace = true

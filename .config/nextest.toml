@@ -1,0 +1,12 @@
+# Each sandbox test starts its own nearcore in Docker. More than three at
+# once starve each other's block production, so they share a group; unit
+# tests run at full parallelism.
+[test-groups]
+docker = { max-threads = 3 }
+
+[[profile.default.overrides]]
+filter = 'package(extents-sandbox)'
+test-group = 'docker'
+# The slowest test takes about 8 minutes. One still running at 20 minutes is
+# hung, not slow.
+slow-timeout = { period = "120s", terminate-after = 10 }
