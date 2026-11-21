@@ -111,6 +111,10 @@ fn rejected_specs() {
         Error::NotNormalForm
     ));
     assert!(matches!(
+        rejected_spec("spec-statement-nel.json"),
+        Error::Empty("statement")
+    ));
+    assert!(matches!(
         rejected_spec("spec-three-judges.json"),
         Error::TooManyJudges { .. }
     ));
@@ -147,6 +151,10 @@ fn rejected_reviews() {
             verdict: "achieved",
             ..
         }
+    ));
+    assert!(matches!(
+        rejected_review("review-missing-empty.json"),
+        Error::NotNormalForm
     ));
     assert!(matches!(
         rejected_review("review-missing-evidence.json"),
@@ -330,4 +338,24 @@ fn a_missing_report_supports_failed() {
         Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec()),
         Err(Error::InvalidMissing(_))
     ));
+}
+
+/// "Empty" text means Unicode `White_Space` and nothing else. The TypeScript mirror uses the same set (its `trim()`
+/// would differ): U+0085 is blank, U+FEFF is not.
+#[test]
+fn blank_text_is_unicode_white_space() {
+    let with_statement = |statement: &str| {
+        let mut spec: Value = serde_json::from_slice(&vector("spec.json")).unwrap();
+        spec["statement"] = statement.into();
+        Spec::from_json(&serde_json::to_vec(&spec).unwrap())
+    };
+    for blank in ["\u{85}", "\u{a0}", "\u{2028}", "\u{3000}", " \t\n"] {
+        assert!(
+            matches!(with_statement(blank), Err(Error::Empty("statement"))),
+            "{blank:?}"
+        );
+    }
+    for kept in ["\u{feff}", "\u{200b}", "\u{180e}", "\u{1c}"] {
+        assert!(with_statement(kept).is_ok(), "{kept:?}");
+    }
 }
