@@ -20,6 +20,7 @@ import { accountId, parseSpec, specHash, type Spec } from "../shared/spec.ts";
 import { runAgent, type AgentDeps } from "./agent.ts";
 import { contribute, draft, review, type ContributorView } from "./agents.ts";
 import type { CheckDeps } from "./checks.ts";
+import type { ObjectiveUsage } from "./archive.ts";
 import { runChecks, runEvaluation, type CheckRunDeps } from "./precheck.ts";
 import { SERVER_TOOLS } from "./tools.ts";
 
@@ -28,6 +29,8 @@ export interface AppDeps extends AgentDeps {
   deploy(params: Params, spec?: Spec): Promise<{ accountId: string; txHash?: string; published?: boolean }>;
   checks: CheckDeps;
   delivered: CheckRunDeps["delivered"];
+  /** The most one objective may add to the evidence archive; defaults to the archive module's ceiling. */
+  archiveObjectiveBytes?: number;
 }
 
 /** An AG-UI event stream as an SSE response. */
@@ -60,6 +63,8 @@ export function createApp(deps: AppDeps): Hono {
   const slots = new Budget(Infinity, 4);
   // the evaluator's memory for the retry rule; per process, so a restart only restarts the retry window
   const unreachableSince = new Map<string, number>();
+  // what each objective has asked the evidence archive to keep, so one objective cannot fill it for every other
+  const archiveUsage: ObjectiveUsage = new Map();
   const hourly = new Budget(200, Infinity);
   /** Spends one costly operation, or says why not. */
   const charge = (): string | undefined => {
@@ -147,7 +152,7 @@ export function createApp(deps: AppDeps): Hono {
       if (!parsed.success) return c.json({ error: "invalid run input" }, 400);
       const spent = charge();
       if (spent) return c.json({ error: spent }, 429);
-      return sse((signal) => runner(parsed.data, { ...deps, unreachableSince, signal }), c.req.raw.signal, c.req.header("accept"));
+      return sse((signal) => runner(parsed.data, { ...deps, unreachableSince, archiveUsage, signal }), c.req.raw.signal, c.req.header("accept"));
     });
   }
 
@@ -244,7 +249,7 @@ export function createApp(deps: AppDeps): Hono {
     const spent = charge();
     if (spent) return c.json({ error: spent }, 429);
     const signal = withTimeout(c.req.raw.signal, RUN_MS);
-    return c.json(await review(objective.data, { ...deps, unreachableSince, signal }, c.req.url));
+    return c.json(await review(objective.data, { ...deps, unreachableSince, archiveUsage, signal }, c.req.url));
   });
 
   app.get("/api/objective/:id", async (c) => {
