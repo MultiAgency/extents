@@ -85,7 +85,7 @@ signature verifies against those hashes. Each call, with its model, answer and s
 `llm_calls` under its criterion. This app's evaluator is not an attested build, so new objectives cannot pin an
 `evaluator_build`. The signing key comes from provider HTTPS unless the operator pins it with `NEARAI_SIGNING_KEYS`. It
 is not tied to a TEE attestation report. During evaluation, raw request, response, receipt and fetched evidence bytes are archived privately by SHA-256, so a review can
-be checked against the same bytes. There is no replay tool yet. Draft checks do not write to this archive; a full archive pauses affected evaluation checks rather than dropping evidence.
+be checked against the same bytes. `bun scripts/replay.ts` replays a review from the archive (see docs/documents.md). Draft checks do not write to this archive; a full archive pauses affected evaluation checks rather than dropping evidence.
 
 ## For agents
 

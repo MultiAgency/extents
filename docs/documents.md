@@ -46,7 +46,7 @@ approve. Allocation and completed payment are separate events.
 
 Reviews contain fetched evidence hashes and model request/response hashes. During evaluation,
 the server archives the exact evidence and model receipt bytes in a private, content-addressed
-store. The archive is quota-bounded and has no replay tool yet. Draft checks do not write to it.
+store. The archive is quota-bounded. `bun scripts/replay.ts <archive-dir> <review-hash>` replays a review from it offline: it checks that everything the review commits to is archived and unaltered, rebuilds each model request, verifies each receipt signature and re-runs the criteria that archived bytes can decide. A fetched page's HTTP status and content type are not archived, so criteria that depend on them are reported as inconclusive. Draft checks do not write to it.
 Provider signatures are verified; TEE attestation is not verified.
 
 The private server archive does not make the published report or review private. Do not publish
