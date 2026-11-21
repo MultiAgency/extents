@@ -73,7 +73,8 @@ export const review = z.strictObject({
   evaluator_build: hash.optional(),
   deliverables: z.array(z.strictObject({ contributor: accountId, sha256: hash })),
   /** Slots whose report was never published: judged as failed, never as achieved. Omitted when empty. */
-  missing: z.array(accountId).optional(),
+  // left out when empty: an explicit `[]` is a second spelling of the same review, and has a second hash
+  missing: z.array(accountId).min(1).optional(),
   results: z.array(
     z.strictObject({
       criterion_id: z.string(),
@@ -122,8 +123,15 @@ function fromJson<T>(schema: z.ZodType<T>, raw: unknown): T {
   return parsed.data;
 }
 
+/**
+ * Empty text, as `crates/spec` decides it: only Unicode White_Space (Rust's `char::is_whitespace`). JavaScript's
+ * `trim()` differs on U+0085, which it keeps, and U+FEFF, which it strips, so it is not used for this.
+ */
+const BLANK = /^[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*$/;
+const isBlank = (value: string) => BLANK.test(value);
+
 const nonEmpty = (field: string, value: string) => {
-  if (value.trim() === "") fail(`${field} is empty`);
+  if (isBlank(value)) fail(`${field} is empty`);
 };
 
 const checkVersion = (v: number) => {
@@ -189,7 +197,7 @@ export function validateAppSpec(s: Spec): void {
 }
 
 function checkProblem(c: Check): string | undefined {
-  const text = (field: string, value: string) => (value.trim() === "" ? `${field} is empty` : undefined);
+  const text = (field: string, value: string) => (isBlank(value) ? `${field} is empty` : undefined);
 
   switch (c.kind) {
     case "contains":
