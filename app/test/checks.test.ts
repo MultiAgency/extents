@@ -73,6 +73,25 @@ describe("checks", () => {
     expect(performance.now() - start).toBeLessThan(250);
   });
 
+  test("a failing evidence archive is an error for the run, never an unreachable host", async () => {
+    const archive = async () => {
+      throw new Error("The private evidence archive is full; evaluation is paused");
+    };
+    const archived: CheckDeps = { ...deps, archive };
+    // a page that loads fine: the archive is what fails, so the check must not report the page as unavailable
+    for (const check of [
+      { kind: "live_url", label: "Event page", must_contain: "New York" },
+      { kind: "sources", min: 1, figures: false },
+    ] as const) {
+      const c = crit(check);
+      await expect(runCheck(c, spec(c), REPORT, archived)).rejects.toThrow(/archive is full/);
+    }
+    // an unreachable host is still the contributor's: unchanged
+    const down = crit({ kind: "live_url", label: "Missing page" });
+    const missing: Deliverable = { text: "Missing page: https://example.org/nowhere" };
+    expect(await runCheck(down, spec(down), missing, archived)).toMatchObject({ outcome: "skipped", unavailable: true });
+  });
+
   test("numeric_match within bounds", async () => {
     expect(await run({ kind: "numeric_match", label: "Attendees", min: 30 })).toMatchObject({ outcome: "pass", detail: "Attendees: 34" });
     expect(await run({ kind: "numeric_match", label: "Attendees", min: 40, max: 100 })).toMatchObject({
