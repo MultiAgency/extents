@@ -84,7 +84,10 @@ NEAR AI's ed25519 signature over `<model>:<sha256(request)>:<sha256(response)>`,
 signature verifies against those hashes. Each call, with its model, answer and signature, goes into the review's
 `llm_calls` under its criterion. This app's evaluator is not an attested build, so new objectives cannot pin an
 `evaluator_build`. The signing key comes from provider HTTPS unless the operator pins it with `NEARAI_SIGNING_KEYS`. It
-is not tied to a TEE attestation report. During evaluation, raw request, response, receipt and fetched evidence bytes are archived privately by SHA-256, so a review can
+is not tied to a TEE attestation report unless the operator sets `NEARAI_ATTEST=1`: then each receipt's key must also be bound by an Intel TDX quote
+from NEAR AI Cloud's attestation report (`src/server/attestation.ts`), on a fully patched platform, not in debug mode, with the reported compose file and
+event log matching the quote. That shows the key lives in a genuine TDX enclave, not that the image running there was audited; NVIDIA's GPU verdict and the
+gateway are not checked. The verified report is archived with the receipt. During evaluation, raw request, response, receipt and fetched evidence bytes are archived privately by SHA-256, so a review can
 be checked against the same bytes. There is no replay tool yet. Draft checks do not write to this archive; a full archive pauses affected evaluation checks rather than dropping evidence.
 
 ## For agents
@@ -115,7 +118,7 @@ deletes only once accounted payouts have settled and the Verifier balance is zer
 
 - [ ] The default NEAR AI model for the customer chat: `Qwen/Qwen3.6-35B-A3B-FP8` is fast but drafts weak specs; model choice remains an operator decision.
 - [ ] Which account deploys objectives (`StateInit`), until wallets can sign it.
-- [ ] Whether to verify NEAR AI's signing key against its TEE attestation report before trusting a receipt.
+- [ ] Whether to verify NEAR AI's signing key against its TEE attestation report before trusting a receipt. (Optional today: `NEARAI_ATTEST=1`; off by default. Open: whether to make it the default, check a list of audited compose hashes, and record the result in `llm_calls`.)
 
 ## Resource and release controls
 

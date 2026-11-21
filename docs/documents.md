@@ -47,7 +47,7 @@ approve. Allocation and completed payment are separate events.
 Reviews contain fetched evidence hashes and model request/response hashes. During evaluation,
 the server archives the exact evidence and model receipt bytes in a private, content-addressed
 store. The archive is quota-bounded and has no replay tool yet. Draft checks do not write to it.
-Provider signatures are verified; TEE attestation is not verified.
+Provider signatures are verified. TEE attestation is verified only when the operator sets `NEARAI_ATTEST=1`, and is not recorded in the review (see app.md).
 
 The private server archive does not make the published report or review private. Do not publish
 confidential material through this app. The contract itself interprets hashes and account roles,

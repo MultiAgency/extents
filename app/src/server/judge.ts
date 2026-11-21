@@ -4,8 +4,8 @@
  * `<model>:<sha256(request)>:<sha256(response)>` is fetched and verified, and
  * all of it goes into the review's `llm_calls`, so anyone can check that
  * this model gave this answer to this question. The signature is checked against the key supplied over provider HTTPS;
- * the key can optionally be pinned by the operator. Tying it to a genuine TEE needs its attestation
- * report, which is not checked here.
+ * the key can optionally be pinned by the operator. With `attest`, the key must also be bound by an Intel TDX quote
+ * (see `attestation.ts`); without it, tying the key to a genuine TEE is not checked.
  */
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
@@ -15,6 +15,7 @@ import { judgeRequest, MAX_JUDGED_BYTES, utf8Bytes } from "../shared/judge.ts";
 import { readCapped, withTimeout } from "./bounded.ts";
 import type { CheckDeps } from "./checks.ts";
 import { NEAR_AI_BASE_URL } from "./model.ts";
+import type { nearAiAttestation } from "./attestation.ts";
 
 /** NEAR AI's signature over one completion. */
 interface Receipt {
@@ -42,11 +43,14 @@ export function nearAiJudge({
   baseUrl = NEAR_AI_BASE_URL,
   send = fetch,
   signingKeys,
+  attest,
 }: {
   apiKey: string;
   baseUrl?: string;
   send?: typeof fetch;
   signingKeys?: string[];
+  /** If set, the receipt's key must also be tied to a genuine enclave (`nearAiAttestation`); off by default. */
+  attest?: ReturnType<typeof nearAiAttestation>;
 }): NonNullable<CheckDeps["judge"]> {
   const auth = { authorization: `Bearer ${apiKey}` };
   return async (model, question, deliverable, signal, archive) => {
@@ -82,6 +86,13 @@ export function nearAiJudge({
     const receipt = sigBytes ? (JSON.parse(new TextDecoder().decode(sigBytes)) as Receipt) : undefined;
     if (!receipt || !receiptVerifies(receipt, hashes)) throw new Error("NEAR AI's receipt for this judgement did not verify");
     if (signingKeys && !signingKeys.includes(receipt.signing_address)) throw new Error("The model receipt key is not trusted");
+    if (attest) {
+      try {
+        await attest(model, receipt.signing_address, archive, signal);
+      } catch (e) {
+        throw new Error(`The model receipt key is not tied to a genuine enclave: ${e instanceof Error ? e.message : e}`);
+      }
+    }
     await archive?.(requestBytes);
     await archive?.(raw);
     await archive?.(new TextEncoder().encode(JSON.stringify(receipt)));
