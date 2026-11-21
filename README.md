@@ -312,6 +312,8 @@ The crate defines and validates the formats. It does not run any check.
 
 ## Status
 
+The protocol is specified in [`docs/spec.md`](docs/spec.md) (draft for review).
+
 Established, by unit tests under `near-sdk` mocking (`cargo test`):
 
 - param validation, share rounding (the remainder goes to the sponsor), and
