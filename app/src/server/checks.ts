@@ -91,6 +91,20 @@ async function fetchPage(deps: CheckDeps, url: URL, raw: string): Promise<Loaded
   }
 }
 
+/**
+ * Whether a cited url lies under a spec's `url_prefix`. The url is normalized first (host case, default port, `..`
+ * segments), so `https://example.org/a/../b` is judged as `https://example.org/b`; a valid prefix is already in that
+ * form and ends in `/`, so `https://example.org.evil.example/` is not under `https://example.org/`.
+ */
+function underPrefix(url: string, prefix: string | undefined): boolean {
+  if (prefix === undefined) return true;
+  try {
+    return new URL(url).href.startsWith(prefix);
+  } catch {
+    return false;
+  }
+}
+
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** The value on a `<label>: <value>` line, case-insensitive, list markers allowed. */
@@ -202,6 +216,7 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
     case "live_url": {
       const url = labelled(d.text, check.label)?.match(LINK)?.[0];
       if (!url) return result(c, "fail", `no "${check.label}: <url>" line`);
+      if (!underPrefix(url, check.url_prefix)) return result(c, "fail", `${url} is not under ${check.url_prefix}`);
       const page = await load(deps, url);
       if (typeof page === "string") return result(c, "fail", page);
       if ("unavailable" in page) return unreachable(c, page.unavailable);
@@ -212,7 +227,9 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
       return result(c, "pass", `${url} loads${check.must_contain ? ` and shows "${check.must_contain}"` : ""}`, evidence);
     }
     case "sources": {
-      const cited = links(d.text).slice(0, MAX_FETCHES);
+      const cited = links(d.text)
+        .filter((url) => underPrefix(url, check.url_prefix))
+        .slice(0, MAX_FETCHES);
       // load never throws, so every link is fetched at once
       const fetched = await Promise.all(cited.map((url) => load(deps, url)));
       const unavailable = fetched.some((p) => typeof p !== "string" && "unavailable" in p);

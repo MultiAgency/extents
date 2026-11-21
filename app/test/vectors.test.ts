@@ -24,6 +24,8 @@ describe("crates/spec vectors", () => {
   const spec = parseSpec(vectors("spec.json"));
 
   test("spec hash", () => expect(specHash(spec)).toBe(expected["spec.json"]));
+  test("a spec that pins where evidence may come from hashes as pinned", () =>
+    expect(specHash(parseSpec(vectors("spec-url-prefix.json")))).toBe(expected["spec-url-prefix.json"]));
   test("review hash", () => expect(reviewHash(parseReview(vectors("review.json"), spec))).toBe(expected["review.json"]));
 
   test("judge request, rebuilt byte for byte", () => {

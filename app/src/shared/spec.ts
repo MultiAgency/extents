@@ -37,8 +37,10 @@ export const check = z.discriminatedUnion("kind", [
     kind: z.literal("live_url"),
     label: z.string(),
     must_contain: z.string().optional(),
+    /** The cited url must lie under this prefix; see `urlPrefixProblem`. */
+    url_prefix: z.string().optional(),
   }),
-  z.strictObject({ kind: z.literal("sources"), min: u32, figures: z.boolean() }),
+  z.strictObject({ kind: z.literal("sources"), min: u32, figures: z.boolean(), url_prefix: z.string().optional() }),
   z.strictObject({
     kind: z.literal("media"),
     kinds: z.array(z.enum(["image", "video", "audio"])),
@@ -188,6 +190,34 @@ export function validateAppSpec(s: Spec): void {
   }
 }
 
+/**
+ * A `url_prefix` in its one canonical spelling: `https://host/`, optionally followed by path segments each ending in
+ * `/`. The host is lowercase letters, digits, `.` and `-` with at least one dot; there is no port, credential, query,
+ * fragment, percent-encoding or dot segment, and the final `/` keeps `https://example.org/` from matching
+ * `https://example.org.evil.example/`. The evaluator normalizes a cited url before comparing, so this spelling is the
+ * one a plain prefix test is right for. Mirrors `url_prefix_problem` in `crates/spec`.
+ */
+export function urlPrefixProblem(prefix: string | undefined): string | undefined {
+  if (prefix === undefined) return undefined;
+  if (new TextEncoder().encode(prefix).length > 2048) return "url_prefix is over 2048 bytes";
+  if (!prefix.startsWith("https://")) return "url_prefix must start with https://";
+  const rest = prefix.slice("https://".length);
+  const slash = rest.indexOf("/");
+  if (slash === -1) return "url_prefix must end with /";
+  const host = rest.slice(0, slash);
+  const path = rest.slice(slash + 1);
+  const hostOk =
+    host.includes(".") && !/^[.-]|[.-]$/.test(host) && !host.includes("..") && /^[a-z0-9.-]+$/.test(host);
+  if (!hostOk) return "url_prefix host must be lowercase letters, digits, '.' and '-', with a dot";
+  if (path === "") return undefined;
+  if (!path.endsWith("/")) return "url_prefix must end with /";
+  for (const segment of path.slice(0, -1).split("/")) {
+    if (segment === "" || segment === "." || segment === ".." || !/^[A-Za-z0-9._~-]+$/.test(segment))
+      return `url_prefix path segment ${JSON.stringify(segment)} is empty, a dot segment, or has a character other than letters, digits, '.', '_', '~' and '-'`;
+  }
+  return undefined;
+}
+
 function checkProblem(c: Check): string | undefined {
   const text = (field: string, value: string) => (value.trim() === "" ? `${field} is empty` : undefined);
 
@@ -223,9 +253,13 @@ function checkProblem(c: Check): string | undefined {
       return undefined;
     }
     case "live_url":
-      return text("label", c.label) ?? (c.must_contain === undefined ? undefined : text("must_contain", c.must_contain));
+      return (
+        text("label", c.label) ??
+        (c.must_contain === undefined ? undefined : text("must_contain", c.must_contain)) ??
+        urlPrefixProblem(c.url_prefix)
+      );
     case "sources":
-      return c.min === 0 ? "min is 0" : undefined;
+      return c.min === 0 ? "min is 0" : urlPrefixProblem(c.url_prefix);
     case "media":
       if (c.kinds.length === 0) return "kinds is empty";
       if (new Set(c.kinds).size !== c.kinds.length) return "kinds repeats a kind";

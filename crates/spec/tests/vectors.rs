@@ -111,6 +111,42 @@ fn rejected_specs() {
         Error::NotNormalForm
     ));
     assert!(matches!(
+        rejected_spec("spec-url-prefix-no-slash.json"),
+        Error::InvalidCheck { id, .. } if id == "page"
+    ));
+    assert!(matches!(
+        rejected_spec("spec-url-prefix-http.json"),
+        Error::InvalidCheck { id, .. } if id == "page"
+    ));
+    assert!(matches!(
+        rejected_spec("spec-url-prefix-credentials.json"),
+        Error::InvalidCheck { id, .. } if id == "page"
+    ));
+    assert!(matches!(
+        rejected_spec("spec-url-prefix-uppercase-host.json"),
+        Error::InvalidCheck { id, .. } if id == "page"
+    ));
+    assert!(matches!(
+        rejected_spec("spec-url-prefix-dot-segment.json"),
+        Error::InvalidCheck { id, .. } if id == "page"
+    ));
+    assert!(matches!(
+        rejected_spec("spec-url-prefix-query.json"),
+        Error::InvalidCheck { id, .. } if id == "page"
+    ));
+    assert!(matches!(
+        rejected_spec("spec-url-prefix-port.json"),
+        Error::InvalidCheck { id, .. } if id == "page"
+    ));
+    assert!(matches!(
+        rejected_spec("spec-url-prefix-sources-empty.json"),
+        Error::InvalidCheck { id, .. } if id == "sources"
+    ));
+    assert!(matches!(
+        rejected_spec("spec-url-prefix-null.json"),
+        Error::NotNormalForm
+    ));
+    assert!(matches!(
         rejected_spec("spec-three-judges.json"),
         Error::TooManyJudges { .. }
     ));
@@ -330,4 +366,15 @@ fn a_missing_report_supports_failed() {
         Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec()),
         Err(Error::InvalidMissing(_))
     ));
+}
+
+/// A spec that pins where evidence may come from hashes as computed outside this crate.
+#[test]
+fn url_prefix_spec_hash() {
+    let expected: Value = serde_json::from_slice(&vector("expected.json")).unwrap();
+    let spec = Spec::from_json(&vector("spec-url-prefix.json")).unwrap();
+    assert_eq!(
+        hex::encode(spec.hash().unwrap()),
+        expected["spec-url-prefix.json"].as_str().unwrap()
+    );
 }
