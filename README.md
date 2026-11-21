@@ -312,6 +312,8 @@ The crate defines and validates the formats. It does not run any check.
 
 ## Status
 
+The protocol is specified in [`docs/spec.md`](docs/spec.md) (draft for review).
+
 Established, by unit tests under `near-sdk` mocking (`cargo test`):
 
 - param validation, share rounding (the remainder goes to the sponsor), and
@@ -366,8 +368,10 @@ mainnet `intents.near`, by [`e2e/`](e2e/README.md) (2026-11-20). The contract
 is published as global code `4GxG7Nyek6NcaKqkGfDoXrBwspYPE7gA1ADigd3JoiTF`
 (SHA-256 `30a94195…`), the reproducible build of commit `c50d0bb`, which passed
 the full sandbox suite on that exact file first. All ten scenarios pass, 170 of
-170 checks. Every transaction and balance is in
-[`e2e/results/30a94195…/`](e2e/results/30a9419511a344613eb36e64cdee02a3f032ce17811ef2098e729030713f8cb6/RESULTS.md).
+170 checks. Every transaction and balance was written to
+`e2e/results/30a94195…/RESULTS.md` by `extents-e2e`. Generated result
+directories are ignored by Git (see [`e2e/results/RESULTS.md`](e2e/results/RESULTS.md)),
+so re-run [`e2e/`](e2e/README.md) to reproduce them.
 
 [Release](#release), [cancel](#cancel) and [withdrawal](#withdrawal) change
 the contract's code hash, so the published build has none of them and none has
