@@ -15,7 +15,7 @@ const hex = (b: Uint8Array | string) => bytesToHex(sha256(typeof b === "string" 
 function cloud(
   answer: string,
   tamper?: (text: string) => string,
-  options: { signingKeys?: string[]; finish?: string; archive?: (bytes: Uint8Array) => Promise<void> } = {},
+  options: { signingKeys?: string[]; finish?: string; archive?: (bytes: Uint8Array) => Promise<void>; attest?: Parameters<typeof nearAiJudge>[0]["attest"] } = {},
 ) {
   let served: { request: string; response: string } | undefined;
   const send = (async (url: string | URL, init?: RequestInit) => {
@@ -33,9 +33,36 @@ function cloud(
     const text = tamper ? tamper(real) : real;
     return Response.json({ text, signature: bytesToHex(ed25519.sign(new TextEncoder().encode(real), key)), signing_address: address });
   }) as typeof fetch;
-  const judge = nearAiJudge({ apiKey: "k", baseUrl: "https://ai.test/v1", send, signingKeys: options.signingKeys });
+  const judge = nearAiJudge({ apiKey: "k", baseUrl: "https://ai.test/v1", send, signingKeys: options.signingKeys, attest: options.attest });
   return (...args: Parameters<typeof judge>) => judge(args[0], args[1], args[2], args[3], options.archive);
 }
+
+describe("nearAiJudge with an attestation step", () => {
+  test("the receipt's key and model go to the step, with the archive, and the answer is used when it passes", async () => {
+    const seen: { model: string; signer: string; archive: unknown }[] = [];
+    const archive = async () => {};
+    const attest = async (m: string, signer: string, a?: unknown) => void seen.push({ model: m, signer, archive: a });
+    const a = await cloud("Yes\nclear", undefined, { attest, archive })(MODEL, "q", { text: "x" });
+    expect(a.answer).toBe(true);
+    expect(seen).toEqual([{ model: MODEL, signer: address, archive }]);
+  });
+
+  test("a key that is not tied to an enclave is refused, whatever the signature says", async () => {
+    const attest = async () => {
+      throw new Error("TCB status OutOfDate not accepted");
+    };
+    await expect(cloud("Yes", undefined, { attest })(MODEL, "q", { text: "x" })).rejects.toThrow(
+      /not tied to a genuine enclave: TCB status OutOfDate not accepted/,
+    );
+  });
+
+  test("it is not asked about a receipt that already failed", async () => {
+    let asked = 0;
+    const attest = async () => void asked++;
+    await expect(cloud("Yes", (t) => t.replace(/:[0-9a-f]{64}$/, `:${"0".repeat(64)}`), { attest })(MODEL, "q", { text: "x" })).rejects.toThrow(/did not verify/);
+    expect(asked).toBe(0);
+  });
+});
 
 describe("nearAiJudge", () => {
   test("returns the answer with a receipt that verifies", async () => {

@@ -6,6 +6,7 @@ import * as chain from "./chain.ts";
 import { nearAiModel } from "./model.ts";
 import { readDeliverables } from "./fastdata.ts";
 import { evidenceFetch } from "./evidence-fetch.ts";
+import { nearAiAttestation } from "./attestation.ts";
 import { nearAiJudge } from "./judge.ts";
 import { Budget } from "./budget.ts";
 import { evidenceArchive } from "./archive.ts";
@@ -22,6 +23,8 @@ const nearAi = {
     .map((key) => key.trim())
     .filter(Boolean),
 };
+// NEARAI_ATTEST=1: a receipt's key must also be tied to a genuine Intel TDX enclave (fetches Intel collateral; off by default)
+const attest = process.env.NEARAI_ATTEST === "1" ? nearAiAttestation({ apiKey, baseUrl: nearAi.baseUrl }) : undefined;
 const model = nearAiModel(nearAi);
 const deployments = new Budget(10, 1);
 const app = createApp({
@@ -38,7 +41,7 @@ const app = createApp({
   checks: {
     fetch: evidenceFetch as typeof fetch,
     archive,
-    judge: nearAiJudge(nearAi),
+    judge: nearAiJudge({ ...nearAi, attest }),
   },
   delivered: readDeliverables,
 });
