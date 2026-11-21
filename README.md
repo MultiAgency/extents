@@ -263,6 +263,14 @@ verdict can be checked by anyone holding the spec and the deliverables.
   names its models, one or three, and its outcome is their majority answer.
   A spec with an `llm_judge` states `max_report_bytes`, the most UTF-8 bytes
   one contributor's report may have; a longer report fails.
+  A `live_url` or `sources` criterion may state a `url_prefix`, so the
+  evidence must come from where the spec says: `https://host/` or
+  `https://host/path/`, in one canonical spelling (lowercase host, ending in
+  `/`, no port, credential, query or dot segment). The evaluator normalizes a
+  cited url before comparing, so `..` segments and lookalike hosts do not
+  match. Without one, a page the contributor hosts can say whatever
+  `must_contain` asks for. The prefix limits the cited url, not where a
+  redirect leads.
   A spec may pin `evaluator_build`, the hash of an attested evaluator
   program. Contributors see `spec_hash` in `Params` before they commit, so
   they agree to be judged against exactly these criteria.

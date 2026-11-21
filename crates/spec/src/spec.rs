@@ -63,15 +63,24 @@ pub enum Check {
     /// Each path is delivered as a whole, non-empty file.
     Files { paths: Vec<String> },
     /// The deliverable has a `<label>: <url>` line, and the page loads,
-    /// showing `must_contain` if set.
+    /// showing `must_contain` if set. With `url_prefix`, the url must lie
+    /// under it, so the evidence comes from where the spec says.
     LiveUrl {
         label: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         must_contain: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url_prefix: Option<String>,
     },
     /// At least `min` cited links load as public pages. With `figures`,
-    /// every `numeric_match` figure appears on a cited page.
-    Sources { min: u32, figures: bool },
+    /// every `numeric_match` figure appears on a cited page. With
+    /// `url_prefix`, only links under it count.
+    Sources {
+        min: u32,
+        figures: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url_prefix: Option<String>,
+    },
     /// At least `min` delivered items load as one of `kinds`.
     Media { kinds: Vec<MediaKind>, min: u32 },
     /// Each of `models` answers `question` about the deliverable, with the
@@ -224,18 +233,21 @@ impl Check {
             Self::LiveUrl {
                 label,
                 must_contain,
+                url_prefix,
             } => {
                 text("label", label)?;
                 must_contain
                     .as_deref()
-                    .map_or(Ok(()), |m| text("must_contain", m))
+                    .map_or(Ok(()), |m| text("must_contain", m))?;
+                url_prefix.as_deref().map_or(Ok(()), url_prefix_problem)
             }
-            Self::Sources { min, .. } => {
+            Self::Sources {
+                min, url_prefix, ..
+            } => {
                 if *min == 0 {
-                    Err("min is 0".into())
-                } else {
-                    Ok(())
+                    return Err("min is 0".into());
                 }
+                url_prefix.as_deref().map_or(Ok(()), url_prefix_problem)
             }
             Self::Media { kinds, min } => {
                 if kinds.is_empty() {
@@ -264,4 +276,50 @@ impl Check {
             }
         }
     }
+}
+
+/// A `url_prefix` in its one canonical spelling: `https://host/`, optionally
+/// followed by path segments each ending in `/`. The host is lowercase letters,
+/// digits, `.` and `-` with at least one dot; there is no port, credential,
+/// query, fragment, percent-encoding or dot segment, and the final `/` keeps
+/// `https://example.org/` from matching `https://example.org.evil.example/`.
+/// The evaluator normalizes a cited url before comparing, so this spelling is
+/// the one a plain prefix test is right for. Mirrored in `app/src/shared/spec.ts`.
+fn url_prefix_problem(prefix: &str) -> Result<(), String> {
+    const MAX: usize = 2048;
+    if prefix.len() > MAX {
+        return Err(format!("url_prefix is over {MAX} bytes"));
+    }
+    let rest = prefix
+        .strip_prefix("https://")
+        .ok_or("url_prefix must start with https://")?;
+    let (host, path) = rest.split_once('/').ok_or("url_prefix must end with /")?;
+    let host_ok = host.contains('.')
+        && !host.starts_with(['.', '-'])
+        && !host.ends_with(['.', '-'])
+        && !host.contains("..")
+        && host
+            .bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-'));
+    if !host_ok {
+        return Err(
+            "url_prefix host must be lowercase letters, digits, '.' and '-', with a dot".into(),
+        );
+    }
+    if path.is_empty() {
+        return Ok(());
+    }
+    let segments = path.strip_suffix('/').ok_or("url_prefix must end with /")?;
+    for segment in segments.split('/') {
+        let ok = !matches!(segment, "" | "." | "..")
+            && segment
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'~' | b'-'));
+        if !ok {
+            return Err(format!(
+                "url_prefix path segment {segment:?} is empty, a dot segment, or has a character other than letters, digits, '.', '_', '~' and '-'"
+            ));
+        }
+    }
+    Ok(())
 }

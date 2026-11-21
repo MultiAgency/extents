@@ -73,6 +73,47 @@ describe("checks", () => {
     expect(performance.now() - start).toBeLessThan(250);
   });
 
+  describe("url_prefix pins where evidence may come from", () => {
+    const live = (url: string, url_prefix: string) =>
+      run({ kind: "live_url", label: "Event page", url_prefix }, { text: `Event page: ${url}` });
+
+    test("a url under the prefix is checked as before; one outside it fails without being fetched", async () => {
+      fetched.length = 0;
+      expect(await live("https://lu.ma/nyc", "https://lu.ma/")).toMatchObject({ outcome: "pass" });
+      fetched.length = 0;
+      const outside = await live("https://lu.ma/nyc", "https://example.org/");
+      expect(outside).toMatchObject({ outcome: "fail", detail: "https://lu.ma/nyc is not under https://example.org/" });
+      expect(fetched).toEqual([]);
+    });
+
+    test.each([
+      ["a lookalike host", "https://lu.ma.evil.example/nyc", "https://lu.ma/"],
+      ["credentials that name the pinned host", "https://lu.ma@evil.example/nyc", "https://lu.ma/"],
+      ["a dot segment out of the pinned path", "https://example.org/data/../other/regs.csv", "https://example.org/data/"],
+      ["a sibling path with the same start", "https://example.org/data-private/regs.csv", "https://example.org/data/"],
+      ["a different scheme", "http://lu.ma/nyc", "https://lu.ma/"],
+    ])("%s is not under the prefix", async (_, url, prefix) => {
+      fetched.length = 0;
+      expect(await live(url, prefix)).toMatchObject({ outcome: "fail" });
+      expect(fetched).toEqual([]);
+    });
+
+    test("an uppercase host or an explicit default port is judged as its normalized form", async () => {
+      expect(await live("https://LU.MA:443/nyc", "https://lu.ma/")).toMatchObject({ outcome: "pass" });
+    });
+
+    test("sources counts only links under the prefix, and never fetches the others", async () => {
+      const text = "Sources: https://lu.ma/nyc and https://example.org/regs.csv";
+      fetched.length = 0;
+      expect(await run({ kind: "sources", min: 1, figures: false, url_prefix: "https://lu.ma/" }, { text })).toMatchObject({ outcome: "pass" });
+      expect(fetched).toEqual(["https://lu.ma/nyc"]);
+      expect(await run({ kind: "sources", min: 2, figures: false, url_prefix: "https://lu.ma/" }, { text })).toMatchObject({
+        outcome: "fail",
+        detail: "1 of the needed 2 cited links load",
+      });
+    });
+  });
+
   test("numeric_match within bounds", async () => {
     expect(await run({ kind: "numeric_match", label: "Attendees", min: 30 })).toMatchObject({ outcome: "pass", detail: "Attendees: 34" });
     expect(await run({ kind: "numeric_match", label: "Attendees", min: 40, max: 100 })).toMatchObject({
