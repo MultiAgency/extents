@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { accountExists, describeObjective, sputnikDao, verifierBalance, viewObjective } from "../src/server/chain.ts";
 import { query, RPC_READ_MS } from "../src/server/rpc.ts";
+import { FASTDATA_URL } from "../src/shared/config.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -61,13 +62,20 @@ test("a DAO lookup outage is not reported as a non-DAO evaluator", async () => {
   await expect(sputnikDao("dao.testnet")).rejects.toThrow(/503/);
   vi.stubGlobal("fetch", async () => Response.json({ result: { error: "MethodResolveError(MethodNotFound)" } }));
   expect(await sputnikDao("person.testnet")).toBeUndefined();
+  // FastNEAR's words for an account with no contract at all
+  vi.stubGlobal("fetch", async () =>
+    Response.json({
+      result: { error: 'wasm execution failed with error: CompilationError(CodeDoesNotExist { account_id: "person.testnet" })' },
+    }),
+  );
+  expect(await sputnikDao("person.testnet")).toBeUndefined();
 });
 
 test("a failed document lookup cancels sibling RPC reads instead of leaving work behind", async () => {
   vi.stubEnv("PUBLIC_OBJECTIVE_CODE_HASH", "FS91WimvUhXCC6ij7YNwSca6xgT9iER4Qb3LTxqUVkwa");
   const signals: AbortSignal[] = [];
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
-    if (url.includes("fastnear")) return new Response("indexer outage", { status: 503 });
+    if (url.startsWith(FASTDATA_URL)) return new Response("indexer outage", { status: 503 });
     signals.push(init.signal!);
     return new Promise(() => {});
   });

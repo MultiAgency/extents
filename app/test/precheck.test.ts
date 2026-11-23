@@ -316,4 +316,39 @@ describe("/api/evaluate", () => {
     expect(refused.error ?? refused.results.page?.detail).toMatch(/share of the evidence archive/);
     expect(refused.summary?.review).toBeUndefined();
   });
+  test("a failing evidence archive pauses the check and never ages into a contributor's failure", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-20T10:00:00Z"));
+      const agent = client(
+        { params: p, spec: SPEC },
+        {
+          state: { delivered: 3 },
+          delivered: BOTH,
+          path: "/api/evaluate",
+          // the page loads (the default fetch answers 200); the spec and reports were stored, but the quota runs out
+          // on the first fetched page
+          archive: async (bytes: Uint8Array) => {
+            if (new TextDecoder().decode(bytes).includes("Meetup in New York"))
+              throw new Error("The private evidence archive is full; evaluation is paused");
+          },
+          judge: async () => ({ answer: true, detail: "x", call: { ...CALL, answer: true } }),
+        },
+      );
+      const firstRun = await check(agent, { objective: OBJECTIVE });
+      expect(firstRun.results.page).toMatchObject({ outcome: "skipped" });
+      expect(firstRun.results.page!.detail).toMatch(/archive is full/);
+      expect(firstRun.results.page!.detail).not.toMatch(/Recorded|still unreachable/);
+      expect(firstRun.summary.review).toBeUndefined();
+
+      // well past the retry window: an unreachable host would fail by now; an archive error must not
+      vi.setSystemTime(new Date("2026-11-20T10:11:00Z"));
+      const later = await check(agent, { objective: OBJECTIVE });
+      expect(later.results.page).toMatchObject({ outcome: "skipped" });
+      expect(later.results.page!.detail).not.toMatch(/still unreachable/);
+      expect(later.summary.review).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -46,7 +46,9 @@ export async function sputnikDao(accountId: string, signal?: AbortSignal): Promi
     signal?.throwIfAborted();
     // Network failures must not turn an actual DAO into a direct-signing evaluator.
     if (e instanceof RpcReadError && ["UNKNOWN_ACCOUNT", "NO_CONTRACT_CODE"].includes(e.detail.cause?.name ?? "")) return undefined;
-    if (e instanceof Error && /MethodNotFound|MethodResolveError|does not exist while viewing/.test(e.message)) return undefined;
+    // no contract, or not a DAO's: each RPC words it its own way (FastNEAR: "CompilationError(CodeDoesNotExist …)")
+    if (e instanceof Error && /MethodNotFound|MethodResolveError|does not exist while viewing|CodeDoesNotExist/.test(e.message))
+      return undefined;
     throw e;
   });
   if (!policy?.roles) return undefined;

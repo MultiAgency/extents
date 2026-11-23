@@ -1,6 +1,7 @@
 /** Testnet against Tidepool's Verifier, the same build as mainnet `intents.near`. */
 export const NETWORK = "testnet" as const;
-export const RPC_URL = "https://rpc.testnet.near.org";
+/** FastNEAR's testnet RPC: rpc.testnet.near.org rate-limits reads (429) under ordinary use. */
+export const RPC_URL = "https://rpc.testnet.fastnear.com";
 export const FASTDATA_URL = "https://kv.test.fastnear.com";
 export const VERIFIER = "verifier.tidepool-sandbox.testnet";
 

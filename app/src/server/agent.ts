@@ -294,7 +294,7 @@ How an objective works:
 - Contributors are NEAR accounts who will do the work. Each gets a share of the payout in percent; shares sum to 100. At most 10. Each must commit, and later deliver, on-chain.
 - The evaluator is the account that judges whether the objective was achieved, against the spec. Suggest ${DEFAULT_EVALUATOR} unless the customer names another. The customer may be the evaluator, judging it themselves. The evaluator is never a contributor, and the customer is never a contributor.
 - The deadline (RFC 3339 UTC to the second, e.g. 2027-01-15T18:00:00Z) is the last moment to fund, commit and deliver. With no verdict by then, everything returns to the customer.
-- Optionally, an acceptance window in hours: after everyone delivers, the evaluator may attest until the later of the deadline or that many hours after the last delivery. Silence then lets anyone close and pay contributors.
+- Optionally, an acceptance window in hours: after everyone delivers, the evaluator may attest until the later of the deadline or that many hours after the last delivery. Silence then lets anyone close and pay contributors. Only when the customer asks for one: otherwise leave acceptance_window_hours out entirely (never 0).
 
 The spec (v: 1) is what the evaluator judges against: a statement and 1 to 32 criteria. Each criterion has an id (1-32 of a-z 0-9 - _), a description, and a check, one of:
 - contains {phrase, absent}: the deliverable contains a phrase (or must not)

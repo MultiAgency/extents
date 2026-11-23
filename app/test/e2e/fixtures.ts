@@ -4,6 +4,8 @@
  */
 import { test as base, type Page } from "@playwright/test";
 
+import { FASTDATA_URL } from "../../src/shared/config.ts";
+
 /** Fixed wall time; timers still run normally for streaming and retry behavior. */
 export const BROWSER_NOW = "2027-01-01T00:00:00Z";
 export const test = base.extend({
@@ -166,6 +168,8 @@ export async function setup(
     return r.fulfill({ status: 404, json: null });
   });
   await page.route("**/api/deploy", (r) => r.fulfill({ json: { accountId: "deployed", txHash: "DEPLOYTX" } }));
+  // the page's own FastData reads (a publish's read-back) stay off the network: nothing is indexed here
+  await page.route(`${FASTDATA_URL}/**`, (r) => r.fulfill({ json: { entries: [] } }));
   await page.route("**/api/objective/**", (r) =>
     r.fulfill({
       json: {

@@ -66,6 +66,38 @@ describe("withObjectiveBudget", () => {
     expect(outcomes.filter((o) => o.status === "fulfilled")).toHaveLength(2);
     expect(usage.get("a.testnet")?.bytes).toBe(8);
   });
+
+  test("the same bytes written twice at once share one write, so neither is told it was stored when it was not", async () => {
+    const usage: ObjectiveUsage = new Map();
+    let writes = 0;
+    let failing = true;
+    const write = withObjectiveBudget(
+      async () => {
+        writes++;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        if (failing) throw new Error("EACCES");
+      },
+      usage,
+      "a.testnet",
+      6,
+    );
+    const outcomes = await Promise.allSettled([write(bytes("aaaaaa")), write(bytes("aaaaaa"))]);
+    expect(outcomes.map((o) => o.status)).toEqual(["rejected", "rejected"]);
+    expect(writes).toBe(1);
+    expect(usage.get("a.testnet")).toMatchObject({ bytes: 0 });
+    failing = false;
+    await Promise.all([write(bytes("aaaaaa")), write(bytes("aaaaaa"))]);
+    expect(writes).toBe(2);
+    expect(usage.get("a.testnet")?.bytes).toBe(6);
+  });
+
+  test("a spent share is an error for the check, never a page that did not load", async () => {
+    const page: Criterion = { id: "page", description: "d", check: { kind: "live_url", label: "Event page" } };
+    const fetch = (async () => new Response("a page that loads")) as unknown as typeof globalThis.fetch;
+    const archive = withObjectiveBudget(async () => {}, new Map(), "a.testnet", 4);
+    const checked = runCheck(page, { v: 1, statement: "s", criteria: [page] }, { text: "Event page: https://example.org/e" }, { fetch, archive });
+    await expect(checked).rejects.toBeInstanceOf(ArchiveBudgetError);
+  });
 });
 
 describe("a hostile objective against the real archive", () => {
