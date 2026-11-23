@@ -69,26 +69,32 @@ async function load(deps: CheckDeps, raw: string): Promise<Fetched | string | { 
 }
 
 async function fetchPage(deps: CheckDeps, url: URL, raw: string): Promise<Loaded> {
+  let res: Response;
+  let bytes: Uint8Array;
   try {
     const signal = withTimeout(deps.signal, TIMEOUT_MS);
-    const res = await deps.fetch(url, { signal, redirect: "manual" });
+    res = await deps.fetch(url, { signal, redirect: "manual" });
     const encoding = res.headers.get("content-encoding");
     if (encoding && encoding !== "identity") return { unavailable: `${raw} returned an unsupported content encoding` };
     if ([408, 425, 429].includes(res.status) || res.status >= 500 || (res.status >= 300 && res.status < 400))
       return { unavailable: `${raw} could not be checked (HTTP ${res.status})` };
-    const bytes = await readCapped(res, MAX_EVIDENCE_BYTES);
-    if (!bytes) return { unavailable: `${raw} exceeds the evidence size limit` };
-    await deps.archive?.(bytes);
-    return {
-      url: url.href,
-      ok: res.ok,
-      contentType: res.headers.get("content-type") ?? "",
-      text: new TextDecoder().decode(bytes),
-      sha256: sha256Hex(bytes),
-    };
+    const body = await readCapped(res, MAX_EVIDENCE_BYTES);
+    if (!body) return { unavailable: `${raw} exceeds the evidence size limit` };
+    bytes = body;
   } catch (e) {
     return { unavailable: `${raw} did not load (${e instanceof Error ? e.message : String(e)})` };
   }
+  // Outside the fetch's try: a failing archive is the evaluator's fault, not the contributor's. It must reach the
+  // run as an error, which `streamChecks` records as a skipped check, never as an unreachable host: the retry rule
+  // turns those into failures.
+  await deps.archive?.(bytes);
+  return {
+    url: url.href,
+    ok: res.ok,
+    contentType: res.headers.get("content-type") ?? "",
+    text: new TextDecoder().decode(bytes),
+    sha256: sha256Hex(bytes),
+  };
 }
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
