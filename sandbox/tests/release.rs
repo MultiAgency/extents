@@ -62,6 +62,7 @@ async fn assert_paid(
     Ok(())
 }
 
+/// docs/spec.md, "The sponsor may release but never fail"; docs/spec.md, "Paying out needs every slot delivered"; docs/spec.md, "One verdict"; docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn sponsor_releases_once_every_slot_delivered() -> Result<()> {
@@ -94,6 +95,8 @@ async fn sponsor_releases_once_every_slot_delivered() -> Result<()> {
 
 /// Only the evaluator can fail an objective: the sponsor cannot take its
 /// money back by declaring the work failed.
+///
+/// docs/spec.md, "The sponsor may release but never fail"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn sponsor_can_never_attest_failed() -> Result<()> {
@@ -111,6 +114,7 @@ async fn sponsor_can_never_attest_failed() -> Result<()> {
     Ok(())
 }
 
+/// docs/spec.md, "The sponsor may release but never fail"; docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn sponsor_releases_by_signed_intent() -> Result<()> {
@@ -133,6 +137,8 @@ async fn sponsor_releases_by_signed_intent() -> Result<()> {
 }
 
 /// A sponsor that is also the evaluator attests as the evaluator.
+///
+/// docs/spec.md, "The evaluator holds no slot"; docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn a_sponsor_who_evaluates_attests_as_the_evaluator() -> Result<()> {

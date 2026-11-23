@@ -44,6 +44,8 @@ async fn funded(env: &Env, shares: &[(usize, u32)]) -> Result<Objective> {
 /// A plain `mt_transfer` never notifies the objective, so it never counts as
 /// funding: the failed verdict refunds only what was funded, and the stray
 /// amount stays on the objective's balance.
+///
+/// docs/spec.md, "Only the sponsor funds"; docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn a_plain_transfer_is_never_counted() -> Result<()> {
@@ -60,6 +62,8 @@ async fn a_plain_transfer_is_never_counted() -> Result<()> {
 
 /// After a verdict, an unattributed arrival is retained, and keeps the
 /// objective from deleting itself.
+///
+/// docs/spec.md, "Deletion only at a zero balance"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn arrivals_after_the_verdict_are_retained() -> Result<()> {

@@ -55,6 +55,7 @@ fn review_hash() {
     assert_eq!(hex::encode(review.hash().unwrap()), expected("review.json"));
 }
 
+// docs/spec.md, "One meaning has one hash"
 #[test]
 fn hash_ignores_layout() {
     // The vector is pretty-printed with fields out of order; its compact,
@@ -88,6 +89,7 @@ fn a_fetching_check_fails_without_evidence() {
     Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec()).unwrap();
 }
 
+// docs/spec.md, "A model is never the only gate"; docs/spec.md, "A judged spec caps the report size"; docs/spec.md, "One meaning has one hash"
 #[test]
 fn rejected_specs() {
     assert!(matches!(
@@ -128,6 +130,7 @@ fn rejected_specs() {
     ));
 }
 
+// docs/spec.md, "A verdict follows its results"; docs/spec.md, "An outage is never a failed verdict"; docs/spec.md, "One meaning has one hash"
 #[test]
 fn rejected_reviews() {
     assert!(matches!(
@@ -213,6 +216,7 @@ fn call(criterion: &str, model: &str, answer: bool) -> Value {
     })
 }
 
+// docs/spec.md, "A judge is one model or three"
 #[test]
 fn a_judged_outcome_follows_its_models() {
     judged("pass", &call("useful", "example/model", true)).unwrap();
@@ -232,6 +236,7 @@ fn a_judged_outcome_follows_its_models() {
     ));
 }
 
+// docs/spec.md, "A judged spec caps the report size"
 #[test]
 fn a_judged_outcome_needs_its_calls() {
     let mut review: Value = serde_json::from_slice(&vector("review.json")).unwrap();
@@ -249,6 +254,7 @@ fn a_judged_outcome_needs_its_calls() {
 
 /// A report over `max_report_bytes` fails the judged criterion with no model
 /// asked: a fail may have no calls, a pass never.
+// docs/spec.md, "A judged spec caps the report size"
 #[test]
 fn a_judged_fail_may_have_no_calls() {
     let mut review: Value = serde_json::from_slice(&vector("review.json")).unwrap();
@@ -287,6 +293,7 @@ fn a_judged_fail_with_some_calls_needs_them_all() {
     ));
 }
 
+// docs/spec.md, "A judge is one model or three"
 #[test]
 fn a_judge_needs_one_model_or_three() {
     let mut spec: Value = serde_json::from_slice(&vector("spec.json")).unwrap();
@@ -319,8 +326,30 @@ fn a_pinned_build_must_be_recorded() {
     Review::from_json(&serde_json::to_vec(&review).unwrap(), &pinned).unwrap();
 }
 
+/// A skipped check is the evaluator's own failure: with nothing failed and no
+/// report missing, it cannot support `failed`.
+// docs/spec.md, "An outage is never a failed verdict"
+#[test]
+fn an_outage_never_supports_failed() {
+    let mut review: Value = serde_json::from_slice(&vector("review.json")).unwrap();
+    assert_eq!(review["verdict"], "failed");
+    for r in review["results"].as_array_mut().unwrap() {
+        if r["outcome"] == "fail" {
+            r["outcome"] = "skipped".into();
+        }
+    }
+    assert!(matches!(
+        Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec()),
+        Err(Error::VerdictMismatch {
+            verdict: "failed",
+            ..
+        })
+    ));
+}
+
 /// A contributor whose report was never published supports `failed` on its
 /// own, and cannot also be listed as delivered.
+// docs/spec.md, "A verdict follows its results"
 #[test]
 fn a_missing_report_supports_failed() {
     let mut review: Value = serde_json::from_slice(&vector("review.json")).unwrap();

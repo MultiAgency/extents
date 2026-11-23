@@ -53,6 +53,7 @@ describe("crates/spec vectors", () => {
     response_sha256: "44".repeat(32),
   });
 
+  // docs/spec.md, "A judged spec caps the report size"
   test("a judged fail may have no calls, as for a report over the limit; a pass never", () => {
     expect(judged("fail", [])).not.toThrow();
     expect(judged("pass", [])).toThrow(/needs every model's answer/);
@@ -66,6 +67,7 @@ describe("crates/spec vectors", () => {
 
   const rejected = readdirSync(join(root, "crates/spec/tests/vectors/rejected"));
   test("every rejected vector is covered", () => expect(rejected.length).toBeGreaterThan(0));
+  // docs/spec.md, "A model is never the only gate"; docs/spec.md, "A judged spec caps the report size"; docs/spec.md, "One meaning has one hash"; docs/spec.md, "A verdict follows its results"
   test.each(rejected)("rejects %s", (file) => {
     const doc = vectors("rejected", file);
     const parse = file.startsWith("spec-") ? () => parseSpec(doc) : () => parseReview(doc, spec);
@@ -103,6 +105,7 @@ describe("contracts/objective vectors", () => {
 
   const rejected = readdirSync(join(root, "contracts/objective/tests/vectors/rejected"));
   test("rejected vectors exist", () => expect(rejected.length).toBeGreaterThan(0));
+  // docs/spec.md, "Shares sum to exactly 100%"; docs/spec.md, "The evaluator holds no slot"; docs/spec.md, "Backups need a commit-by time"; docs/spec.md, "Only the Verifier relays signed calls"
   test.each(rejected)("refuses %s", (file) => {
     const params = read("contracts/objective/tests/vectors/rejected", file) as Params;
     expect(validateParams(params)).toBeDefined();

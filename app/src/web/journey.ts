@@ -53,8 +53,14 @@ const bit = (mask: number | undefined, i: number) => ((mask ?? 0) >> i) & 1;
 /** A deployed objective, read from the contract's state at `now` (ms). */
 export function objectiveJourney(params: Params, state: ObjectiveState | undefined, now: number): Journey {
   const outcome = state?.outcome;
-  // settled without the evaluator's verdict: by the deadline, by silence, or by the sponsor's own release
-  const skipped: StepId[] = outcome === "expired" || outcome === "accepted" || outcome === "released" ? ["judge"] : [];
+  // settled without the evaluator's verdict: by the deadline, by silence, or by the sponsor's own release;
+  // a cancelled objective ended before anyone committed
+  const skipped: StepId[] =
+    outcome === "cancelled"
+      ? ["commit", "deliver", "judge"]
+      : outcome === "expired" || outcome === "accepted" || outcome === "released"
+        ? ["judge"]
+        : [];
   if (outcome) {
     const pending = Boolean(state?.in_flight) || Object.values(state?.owed ?? {}).some((a) => BigInt(a) > 0n);
     return pending

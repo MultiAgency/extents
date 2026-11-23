@@ -38,7 +38,7 @@ export function objectiveCodeHash(): string {
  */
 export const sponsorMayRelease = (): boolean => process.env.PUBLIC_SPONSOR_RELEASE === "1";
 
-/** FastData's method: a call to it is indexed even though the objective has no such method. */
+/** FastData's method: FastData indexes each call's arguments, and the objective accepts it as a no-op. */
 export const FASTDATA_METHOD = "__fastdata_kv";
 
 /**

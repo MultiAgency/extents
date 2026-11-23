@@ -35,11 +35,7 @@ const tokenOf = (p: Params) => TOKEN_ID.exec(p.token)![2]!;
 const fundMsg = (params: Params) => JSON.stringify({ params, action: { action: "fund" } });
 
 export const calls = {
-  /**
-   * Documents on FastData under the objective, each under its namespaced key.
-   * The objective has no such method, so the receipt fails by design;
-   * FastData indexes the call anyway.
-   */
+  /** Documents on FastData under the objective, each under its namespaced key; the objective accepts the call as a no-op. */
   publish: (objective: string, documents: Partial<Record<DocumentName, unknown>>): Call => ({
     receiver: objective,
     method: FASTDATA_METHOD,

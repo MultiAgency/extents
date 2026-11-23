@@ -227,15 +227,17 @@ describe("contribute", () => {
     ]);
   });
 
-  test("a committed contributor gets nothing to sign until it sends the report, then ob_deliver with its hash", async () => {
+  test("a committed contributor may withdraw until it sends the report, then ob_deliver with its hash", async () => {
     at({ committed: 1 });
     const waiting = (await contribute({ account: "organizer.testnet" })).value;
-    expect(waiting.transactions).toEqual([]);
+    const withdraw = { step: "withdraw", signer: "organizer.testnet", method: "ob_withdraw", args: { params } };
+    expect(waiting.transactions).toMatchObject([withdraw]);
     expect(waiting.next).toMatch(/Send report/);
     const { value } = await contribute({ account: "organizer.testnet", report: REPORT });
     expect(value.report_sha256).toBe(reportHash(REPORT));
     expect(value.transactions).toMatchObject([
       { step: "deliver", method: "ob_deliver", args: { params, delivery: { hash: reportHash(REPORT) } } },
+      withdraw,
     ]);
   });
 

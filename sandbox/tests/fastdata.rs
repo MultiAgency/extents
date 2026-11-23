@@ -47,6 +47,7 @@ async fn publish(
     .await
 }
 
+/// docs/spec.md, "Publishing to an objective changes nothing"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn publishing_is_accepted_and_changes_nothing() -> Result<()> {
@@ -89,6 +90,8 @@ async fn publishing_is_accepted_and_changes_nothing() -> Result<()> {
 
 /// A deposit would stay on the objective and go to whoever closes it, so a
 /// publish with one is refused and the deposit returns to its sender.
+///
+/// docs/spec.md, "Publishing to an objective changes nothing"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn a_publish_with_a_deposit_is_refused() -> Result<()> {

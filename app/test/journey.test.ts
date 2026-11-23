@@ -45,6 +45,10 @@ describe("objective journey", () => {
     const released = objectiveJourney(PARAMS, { outcome: "released" }, BEFORE);
     expect(released.skipped).toEqual(["judge"]);
     expect(nextLine(released, false)).toBe("Settled: released, and every share is paid.");
+    // the sponsor's cancel before anyone committed: nobody committed, delivered or judged, and the sponsor is refunded
+    const cancelled = objectiveJourney(PARAMS, { outcome: "cancelled" }, BEFORE);
+    expect(cancelled.skipped).toEqual(["commit", "deliver", "judge"]);
+    expect(nextLine(cancelled, false)).toBe("Settled: cancelled, and the sponsor is refunded.");
   });
 });
 

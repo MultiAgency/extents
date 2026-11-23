@@ -284,6 +284,9 @@ export function nextDraft(draft: DraftState, name: string, input: unknown, resul
   }
 }
 
+// The model cannot follow a link, so the rules it needs are restated here: docs/spec.md, "Only the sponsor funds"; docs/spec.md, "Shares sum to exactly 100%"
+// docs/spec.md, "The evaluator holds no slot"; docs/spec.md, "Silence fails closed unless the terms say otherwise"
+// docs/spec.md, "A model is never the only gate"; docs/spec.md, "A judge is one model or three"; docs/spec.md, "A judged spec caps the report size"
 export function instructions(account: string, now: string, draft: DraftState = parseDraft({})): string {
   return `You help a customer turn what they want into an objective on NEAR: resources released to the people who achieve it, only if an evaluator judges it achieved, and returned otherwise.
 

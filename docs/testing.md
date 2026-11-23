@@ -6,7 +6,10 @@ The Rust `e2e/` directory is a public-testnet harness, not that browser tool.
 
 ## Repeatable checks
 
-From `app`, run `pnpm test`, `pnpm typecheck`, and `pnpm exec playwright test`.
+`scripts/check`, from the repository root, runs every one of them, cheapest first (see AGENTS.md);
+CI runs the same, without the Docker sandbox. From `app`, `pnpm test`, `pnpm typecheck` and
+`pnpm exec playwright test` run the app's alone. Every rule in [`docs/spec.md`](spec.md#7-rules) is
+cited by a test that checks it, and `pnpm test` fails when one is not.
 Browser tests use a mock wallet, chain responses and model server. They verify UI
 behavior without sending real transactions. The shared Playwright fixture fixes
 wall time at 2027-01-01 while leaving timers running. Import `test` from

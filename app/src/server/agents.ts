@@ -17,8 +17,6 @@ import { reportHash } from "../shared/review.ts";
 import type { Review } from "../shared/spec.ts";
 import { runEvaluation, type CheckRunDeps } from "./precheck.ts";
 
-const PUBLISH_NOTE = "Its receipt fails by design (the objective has no such method); FastData indexes the call anyway.";
-
 /** An objective's own page, where each role acts in their wallet. */
 export const pageOf = (origin: string, objective: string) => new URL(`/o/${objective}`, origin).href;
 
@@ -35,7 +33,7 @@ export function draft(p: Proposal, sponsor: string, given: string | undefined, o
     params: o.params,
     spec: o.spec,
     transactions: [
-      { step: "publish", signer: sponsor, ...describe(calls.publish(o.accountId, { params: o.params, spec: o.spec })), note: PUBLISH_NOTE },
+      { step: "publish", signer: sponsor, ...describe(calls.publish(o.accountId, { params: o.params, spec: o.spec })) },
       { step: "fund", signer: sponsor, ...describe(calls.fund(o.accountId, o.params, o.amount)) },
     ],
     // a sponsor that signs Verifier intents rather than NEAR transactions: deploy with the spec (the deployer then
@@ -65,6 +63,7 @@ export interface Contribution {
  * the report with its delivery proof. Throws, in words for the caller, when
  * the account has no part in the objective.
  */
+// Its `next` lines restate, for the agent: docs/spec.md, "A holder may withdraw until it delivers"; docs/spec.md, "A delivery is final"
 export function contribute(objective: string, view: ContributorView, c: Contribution, origin: string, now = Date.now()) {
   if (!view.documents) throw new Error("This objective has no published terms.");
   const { params, spec } = view.documents;
@@ -77,11 +76,10 @@ export function contribute(objective: string, view: ContributorView, c: Contribu
   // commitment and delivery end at the original deadline; only the time to attest moves
   const open = !state.outcome && Date.parse(params.deadline) >= now;
   const sha256 = c.report === undefined ? undefined : reportHash(c.report);
-  const step = (name: string, call: Parameters<typeof describe>[0], note?: string) => ({
+  const step = (name: string, call: Parameters<typeof describe>[0]) => ({
     step: name,
     signer: c.account,
     ...describe(call),
-    ...(note ? { note } : {}),
   });
 
   let transactions: ReturnType<typeof step>[] = [];
@@ -89,7 +87,7 @@ export function contribute(objective: string, view: ContributorView, c: Contribu
   if (delivered) {
     if (c.report !== undefined && c.delivery_tx) {
       const deliverable = { text: c.report, delivery_tx: c.delivery_tx, delivery_signer: c.delivery_signer ?? c.account };
-      transactions = [step("publish", calls.publish(objective, { deliverable }), PUBLISH_NOTE)];
+      transactions = [step("publish", calls.publish(objective, { deliverable }))];
       next =
         "Sign publish. The evaluator reads the report from it and checks report_sha256 against the delivered hash: a mismatch counts as a missing report.";
     } else
@@ -97,8 +95,8 @@ export function contribute(objective: string, view: ContributorView, c: Contribu
   } else if (!open) next = resolved || "The deadline to commit and deliver has passed.";
   else if (!committed) {
     transactions = [step("commit", calls.commit(objective, params))];
-    next = "Sign commit. Committing cannot be undone.";
-  } else if (sha256 === undefined) next = "Send report to get the call that delivers its hash.";
+    next = "Sign commit. Until you deliver, you can give the slot back with withdraw.";
+  } else if (sha256 === undefined) next = "Send report to get the call that delivers its hash, or sign withdraw to give the slot back.";
   else {
     // a delivery is final, so one the terms already rule out is refused before it is signed
     const bytes = new TextEncoder().encode(c.report).byteLength;
@@ -108,6 +106,8 @@ export function contribute(objective: string, view: ContributorView, c: Contribu
     next =
       "Sign deliver and keep the exact report. Once the transaction is final, send report and delivery_tx to get the call that publishes it. A delivery cannot be changed.";
   }
+  // whoever holds the slot may give it back until they deliver
+  if (open && committed && !delivered) transactions.push(step("withdraw", calls.withdraw(objective, params)));
   // anyone may close: it expires an objective past its last moment to attest, retries payouts, and deletes it once settled
   if (state.outcome || Date.parse(state.deadline ?? params.deadline) < now)
     transactions.push({ ...step("close", calls.close(objective, params)), signer: "anyone" });
@@ -156,7 +156,7 @@ export async function review(objective: string, deps: CheckRunDeps, origin: stri
   const publish = {
     step: "publish",
     ...describe(calls.publish(objective, { review: result.review })),
-    note: `Anyone may sign it. ${PUBLISH_NOTE}`,
+    note: "Anyone may sign it.",
   };
   const attest = evaluator_dao
     ? {

@@ -52,6 +52,15 @@ pub enum Scenario {
     /// `transfer` intent and attests with an `auth_call` intent, each signed
     /// by the council's vote through the MPC signer.
     DaoIntentObjective,
+    /// The sponsor releases the payment itself, without the evaluator: refused
+    /// until both contributors deliver, then `released` with the split paid.
+    Release,
+    /// A commitment blocks the sponsor's cancel until it is withdrawn; then
+    /// the cancel returns everything as `cancelled`.
+    Cancel,
+    /// A contributor commits and withdraws; after `commit_by` its backup
+    /// takes the empty slot, cannot withdraw once delivered, and is paid.
+    Withdraw,
 }
 
 /// Everything recorded for one scenario.
@@ -181,6 +190,9 @@ impl Scenario {
             Self::Accepted => accepted(&ctx, &mut run).await,
             Self::DaoObjective => dao_objective(&ctx, &mut run).await,
             Self::DaoIntentObjective => dao_intent_objective(&ctx, &mut run).await,
+            Self::Release => release(&ctx, &mut run).await,
+            Self::Cancel => cancel(&ctx, &mut run).await,
+            Self::Withdraw => withdraw(&ctx, &mut run).await,
         };
         if let Err(err) = result {
             run.check("completed", false, format!("{err:#}"));
@@ -291,6 +303,7 @@ impl Instance<'_, '_> {
                 .params()
                 .contributors
                 .keys()
+                .chain(self.objective.params().backups.values())
                 .map(|c| c.as_str().parse().unwrap_or_else(|_| unreachable!())),
         )
         .chain(std::iter::once(self.objective.account().clone()))
@@ -486,6 +499,36 @@ impl Instance<'_, '_> {
         let label = format!("ob_attest {}", serde_json::to_string(&attestation)?);
         let call = self.objective.attest(&attestation);
         self.call(&label, &evaluator, &call).await
+    }
+
+    /// The sponsor's own achieved verdict, which releases the payment.
+    async fn release(&mut self) -> Result<Tx> {
+        let sponsor = self.ctx.accounts.sponsor.clone();
+        let call = self.objective.attest(&Attestation::from(Verdict::Achieved));
+        self.call("ob_attest achieved by the sponsor", &sponsor, &call)
+            .await
+    }
+
+    async fn cancel(&mut self) -> Result<Tx> {
+        let sponsor = self.ctx.accounts.sponsor.clone();
+        let call = self.objective.cancel();
+        self.call("ob_cancel by the sponsor", &sponsor, &call).await
+    }
+
+    async fn withdraw(&mut self, contributor: &AccountId) -> Result<Tx> {
+        let call = self.objective.withdraw();
+        self.call(&format!("ob_withdraw by {contributor}"), contributor, &call)
+            .await
+    }
+
+    /// Checks that `tx` failed with `message`.
+    fn check_refused(&mut self, name: &str, tx: &Tx, message: &str) {
+        let error = tx.error.clone().unwrap_or_default();
+        self.run.check(
+            name,
+            !tx.ok && error.contains(message),
+            format!("tx {}: {error}", tx.hash),
+        );
     }
 
     async fn close(&mut self, signer: &AccountId) -> Result<Tx> {
@@ -1276,6 +1319,161 @@ async fn dao_intent_objective(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     ob.check_payouts(&tx, &before, &expected);
 
     let closer = ob.ctx.accounts.deployer.clone();
+    ob.close_after_deadline(&closer).await?;
+    Ok(())
+}
+
+async fn release(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
+    let [c0, c1, ..] = &ctx.accounts.contributors[..] else {
+        unreachable!()
+    };
+    let params = ctx.params(&[(c0, 700_000), (c1, 300_000)], false)?;
+    let mut ob = ctx.deploy(run, params, NearToken::ZERO).await?;
+    ob.fund(AMOUNT).await?;
+    ob.commit(c0).await?;
+    ob.commit(c1).await?;
+
+    let tx = ob.release().await?;
+    ob.check_refused(
+        "release refused before delivery",
+        &tx,
+        "not all contributors have delivered",
+    );
+    ob.deliver(c0).await?;
+    ob.deliver(c1).await?;
+
+    let before = ob.balances().await?;
+    let tx = ob.release().await?;
+    let resolved = tx.events_of("resolved").next().cloned().unwrap_or_default();
+    ob.run.check(
+        "resolved released",
+        resolved["data"]["outcome"] == "released",
+        resolved["data"].to_string(),
+    );
+    let expected = ob.expected_split(AMOUNT);
+    ob.check_payouts(&tx, &before, &expected);
+
+    let closer = ob.ctx.accounts.evaluator.clone();
+    ob.close_after_deadline(&closer).await?;
+    Ok(())
+}
+
+async fn cancel(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
+    let [c0, c1, ..] = &ctx.accounts.contributors[..] else {
+        unreachable!()
+    };
+    let params = ctx.params(&[(c0, 700_000), (c1, 300_000)], false)?;
+    let mut ob = ctx.deploy(run, params, NearToken::ZERO).await?;
+    ob.fund(AMOUNT).await?;
+
+    ob.commit(c0).await?;
+    let tx = ob.cancel().await?;
+    ob.check_refused(
+        "cancel refused while committed",
+        &tx,
+        "a contributor has committed",
+    );
+    let tx = ob.withdraw(c0).await?;
+    ob.run.check(
+        "withdrawn event",
+        tx.ok
+            && tx
+                .events_of("withdrawn")
+                .any(|e| e["data"]["contributor"] == c0.as_str()),
+        event_summary(&tx, "withdrawn"),
+    );
+
+    let before = ob.balances().await?;
+    let tx = ob.cancel().await?;
+    let resolved = tx.events_of("resolved").next().cloned().unwrap_or_default();
+    ob.run.check(
+        "resolved cancelled",
+        resolved["data"]["outcome"] == "cancelled",
+        resolved["data"].to_string(),
+    );
+    let sponsor = ob.ctx.accounts.sponsor.clone();
+    ob.check_payouts(&tx, &before, &[(sponsor, AMOUNT)]);
+    let tx = ob.commit(c1).await?;
+    ob.check_refused("commit refused after cancel", &tx, "already resolved");
+
+    let closer = ob.ctx.accounts.evaluator.clone();
+    ob.close_after_deadline(&closer).await?;
+    Ok(())
+}
+
+/// How long after deployment `commit_by` falls in `withdraw`: time to fund,
+/// commit and withdraw before it, each awaited to finality.
+const WITHDRAW_COMMIT_BY_IN: Duration = Duration::from_mins(2);
+
+async fn withdraw(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
+    let [c0, c1, c2, ..] = &ctx.accounts.contributors[..] else {
+        unreachable!()
+    };
+    let mut params = ctx.params(&[(c0, 700_000), (c1, 300_000)], false)?;
+    let commit_by = Timestamp::now() + WITHDRAW_COMMIT_BY_IN;
+    params.backups = [(c1.as_str().parse()?, c2.as_str().parse()?)].into();
+    params.commit_by = Some(commit_by);
+    params.deadline = commit_by + DEADLINE_BASE + DEADLINE_PER_CONTRIBUTOR * 3;
+    let mut ob = ctx.deploy(run, params, NearToken::ZERO).await?;
+    ob.fund(AMOUNT).await?;
+
+    // c1 commits and leaves before commit_by.
+    ob.commit(c1).await?;
+    let tx = ob.withdraw(c1).await?;
+    ob.run.check(
+        "withdrawn event",
+        tx.ok
+            && tx
+                .events_of("withdrawn")
+                .any(|e| e["data"]["contributor"] == c1.as_str()),
+        event_summary(&tx, "withdrawn"),
+    );
+
+    // After commit_by the backup takes the empty slot.
+    let wait = commit_by
+        .duration_since(Timestamp::now())
+        .unwrap_or_default()
+        + DEADLINE_SLACK;
+    println!("  waiting {}s for commit_by", wait.as_secs());
+    tokio::time::sleep(wait).await;
+    let tx = ob.commit(c2).await?;
+    ob.run.check(
+        "backup takes the slot",
+        tx.ok
+            && tx
+                .events_of("committed")
+                .any(|e| e["data"]["contributor"] == c2.as_str()),
+        event_summary(&tx, "committed"),
+    );
+    let tx = ob.commit(c1).await?;
+    ob.check_refused(
+        "the contributor cannot take it back",
+        &tx,
+        "already committed",
+    );
+    let tx = ob.withdraw(c1).await?;
+    ob.check_refused("only the holder withdraws", &tx, "unauthorized");
+
+    ob.take_part(c0).await?;
+    ob.deliver(c2).await?;
+    let tx = ob.withdraw(c2).await?;
+    ob.check_refused(
+        "delivered work cannot be withdrawn",
+        &tx,
+        "already delivered",
+    );
+
+    let before = ob.balances().await?;
+    let attestation = ob.review(Verdict::Achieved)?;
+    let tx = ob.attest(attestation).await?;
+    let sponsor = ob.ctx.accounts.sponsor.clone();
+    ob.check_payouts(
+        &tx,
+        &before,
+        &[(c0.clone(), 700_006), (c2.clone(), 300_002), (sponsor, 1)],
+    );
+
+    let closer = c2.clone();
     ob.close_after_deadline(&closer).await?;
     Ok(())
 }

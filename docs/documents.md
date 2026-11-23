@@ -19,9 +19,8 @@ but this app accepts text reports and refuses file criteria when launching an ob
 
 ## Publication and reads
 
-Publication calls `__fastdata_kv` on the objective, which FastData indexes. The contract accepts
-the call as a no-op that refuses a deposit and never reads its input or state, so the receipt
-succeeds. Objectives from earlier builds have no such method: there the receipt fails, and FastData
+Publication calls `__fastdata_kv` on the objective, which FastData indexes, and the receipt
+succeeds ([rule](spec.md#publishing-to-an-objective-changes-nothing)). Objectives from earlier builds have no such method: there the receipt fails, and FastData
 indexes the call anyway. Publication alone proves no contract action.
 
 Documents use the keys `extents/v1/params`, `extents/v1/spec`, `extents/v1/deliverable` and

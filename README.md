@@ -36,13 +36,11 @@ The sponsor may also be the evaluator, as a DAO judging its own grants would
 be. Contributors then trust the sponsor's own verdict on whether to pay them.
 
 <a id="release"></a>**Release:** a sponsor that is not the evaluator can still
-concede. Once every slot has delivered, its own `ob_attest` with `achieved`
-pays the contributors out of what it funded, and the objective resolves as
-`released`, never as the evaluator's verdict. It needs nobody's word but the
-sponsor's, so two parties who agree settle without the evaluator, who is then
-only called on when they disagree. The sponsor can never attest `failed`:
-taking the funding back is a judgement on the work, and stays the
-evaluator's.
+concede, with its own `ob_attest` `achieved`
+([rule](docs/spec.md#the-sponsor-may-release-but-never-fail)). It needs nobody's word but
+the sponsor's, so two parties who agree settle without the evaluator, who is
+then only called on when they disagree. Taking the funding back is a judgement
+on the work, so `failed` stays the evaluator's.
 
 Like `escrow-swap`, which it follows closely, the account id is derived from
 `Params` ([NEP-616]), so the address is known before deployment. Only the params
@@ -110,62 +108,57 @@ with no notification, so tokens it delivers straight to the objective are
 never counted as funding (see Settlement). Not yet tried end to end: a
 1Click quote to a `0x…` recipient, which its docs neither show nor rule out.
 
-**Commitment and delivery:** a contributor commits before a verdict and the
-deadline. Once committed, it delivers once, by hash, under the same
-conditions; a delivery cannot be undone. Funding does not wait for
+**Commitment and delivery:** see the rules
+[a contributor commits before the deadline](docs/spec.md#a-contributor-commits-before-the-deadline) and
+[a delivery is final](docs/spec.md#a-delivery-is-final). Funding does not wait for
 commitments, so contributors can see the resources before agreeing. A failed
 verdict or expiry needs no commitments.
 
 <a id="withdrawal"></a>**Withdrawal:** whoever holds a slot can give it back
-with `ob_withdraw`, until it delivers, under the same conditions. The slot is
-then empty, as if nobody had committed to it: its listed contributor may
-commit again, or its backup once `commit_by` has passed. A commitment is
+with `ob_withdraw` ([rule](docs/spec.md#a-holder-may-withdraw-until-it-delivers)), and the
+slot is then empty, as if nobody had committed to it. A commitment is
 therefore a public statement of intent, not a lock: nothing ever forced a
 committed contributor to deliver, and withdrawing says so on the record
 (`withdrawn`) rather than by silence until the deadline.
 
-<a id="cancel"></a>**Cancel:** while no slot is committed, the sponsor can take
-its funding back with `ob_cancel`, and the objective resolves as `cancelled`.
-One commitment locks the funding: from then on only a verdict, a release or
-the deadline moves it. Withdrawals that empty every slot unlock it again, so a
-contributor who cannot do the work and a sponsor who agrees can unwind before
-the deadline. Commit before starting work: until then the sponsor can cancel.
+<a id="cancel"></a>**Cancel:** until someone commits, the sponsor can take its
+funding back with `ob_cancel`
+([rule](docs/spec.md#the-sponsor-may-cancel-until-someone-commits)).
+Withdrawals that empty every slot unlock it again, so a contributor who cannot
+do the work and a sponsor who agrees can unwind before the deadline. Commit
+before starting work: until then the sponsor can cancel.
 
-**Backups:** `Params.backups` names a backup for some contributors' slots,
-with `Params.commit_by` (required with backups, before the deadline). Before
-`commit_by`, only the listed contributor can commit. After it, if the slot is
-still empty, either the contributor or its backup may commit, and whoever
-commits first holds the slot: its share, its delivery and its payout. Only
-its holder can give a slot up ([withdrawal](#withdrawal)), so nobody is
-replaced mid-job. Backups
-must name listed contributors, be distinct from every contributor and from
-each other, and cannot be the evaluator. `State.taken` marks the slots a
-backup holds, and payouts name whoever holds each slot.
+**Backups:** `Params.backups` names a backup for some contributors' slots, with
+a `Params.commit_by` ([rule](docs/spec.md#backups-need-a-commit-by-time)). Whoever commits
+first after `commit_by` holds an empty slot: its share, its delivery and its
+payout ([rule](docs/spec.md#a-backup-takes-an-empty-slot-only-after-commit-by)). Only its
+holder can give a slot up ([rule](docs/spec.md#only-the-holder-acts-for-a-slot)), so nobody
+is replaced mid-job. `State.taken` marks the slots a backup holds, and payouts
+name whoever holds each slot.
 
 <a id="silence"></a>**Silence:** `Params.acceptance_window_secs` is part of the
 deal both sides see before committing, and decides what happens when the
 evaluator does not attest.
 
-- `None` (default): silence until the deadline resolves the objective as
-  `expired` and returns everything to the sponsor. An escrow that fails
-  closed; contributors rely on the evaluator they agreed to.
-- `Some(secs)`: once every contributor has delivered, the evaluator has until
-  the later of the deadline and `secs` after the last delivery to attest.
-  Without a verdict by then, `ob_close` resolves the objective as `accepted`
-  and pays the contributors as an achieved verdict would, with no review. If
-  not everyone delivered, silence still expires.
+The rule is [silence fails closed unless the terms say
+otherwise](docs/spec.md#silence-fails-closed-unless-the-terms-say-otherwise): by default
+contributors rely on the evaluator they agreed to, and a window lets
+contributors who all delivered be paid, with no review, if the evaluator stays
+silent.
 
 Funding, commitment and delivery end at `Params.deadline` either way; only the
 time to attest moves. Within it the evaluator can still attest `achieved` or
 `failed`, the sponsor can still [release](#release), and a `failed` verdict is
 final: there is no dispute path.
 
-**Settlement:** the outcome moves the funded balance into `owed`, and the contract
-sends each amount with `mt_transfer` on the Verifier. Failed transfers go back
-into `owed`, and anyone can retry them with `ob_close`. After the last moment to
-attest, once nothing is funded, owed or in flight, `ob_close` reads the
-objective's own balance on the Verifier. Zero deletes the account. Anything
-else is retained, never sent: a balance cannot tell a plain transfer from a
+**Settlement:** the outcome moves the funded balance into `owed`
+([rule](docs/spec.md#payouts-are-exact)), and the contract sends each amount with
+`mt_transfer` on the Verifier. Failed transfers go back into `owed`
+([rule](docs/spec.md#a-failed-payout-stays-owed-until-it-is-retried)). After the last
+moment to attest, once nothing is funded, owed or in flight, `ob_close` reads
+the objective's own balance on the Verifier
+([rule](docs/spec.md#deletion-only-at-a-zero-balance)). Anything else is retained, never
+sent: a balance cannot tell a plain transfer from a
 refused deposit whose refund has not executed, and nothing bounds how long
 that refund takes. Always fund through `mt_transfer_call` with the fund
 message. Payout callbacks never delete on their own.
@@ -315,54 +308,17 @@ The crate defines and validates the formats. It does not run any check.
 
 The protocol is specified in [`docs/spec.md`](docs/spec.md) (draft for review).
 
-Established, by unit tests under `near-sdk` mocking (`cargo test`):
+What the contract and `extents-spec` enforce is listed as rules in
+[`docs/spec.md` §7](docs/spec.md#7-rules). Every rule is cited by the tests that check it: unit
+tests under `near-sdk` mocking and the pinned vectors (`cargo test`), the Docker sandbox
+(`sandbox/`), and the TypeScript mirror of the vectors (`app/test/vectors.test.ts`).
+`app/test/rules.test.ts` fails on a rule that no test cites, and
+`bun scripts/rules-changed.ts <commit>` (from `app/`) lists the rules a change adds, removes or
+rewords, with everything that cites them.
 
-- param validation, share rounding (the remainder goes to the sponsor), and
-  rejection of tampered params
-- commitment only by a listed contributor, once, before a verdict or the
-  deadline; an achieved verdict only once every slot has delivered
-- funding only by the sponsor, only in the configured token, only before a
-  verdict or the deadline
-- one verdict, only from the evaluator, only before the deadline; expiry only
-  after it
-- release: the sponsor's `achieved` pays the split and resolves as `released`,
-  only once every slot has delivered and only in the time to attest, directly
-  or through `on_auth`; the sponsor's `failed` is refused; a sponsor that is
-  also the evaluator attests as the evaluator
-- cancel: only the sponsor, only while no slot is committed and before any
-  outcome; it returns the funding and resolves as `cancelled`, after which
-  funding and commitment are refused; withdrawals that empty every slot make
-  it possible again
-- withdrawal: only the slot's holder, only before it delivers, before a
-  verdict and the deadline; the slot reopens to its contributor and, after
-  `commit_by`, to its backup; a delivery is never withdrawn
-- events for commitments and for the allocation of an achieved and of a
-  failed verdict, including the review hash
-- committing, delivering and attesting through `on_auth`
-- delivery only by a contributor who committed, once, before a verdict or the
-  deadline; without a window it leaves the deadline alone
-- backups: invalid backup params are rejected; before `commit_by` only the
-  listed contributor commits; after it the first to commit holds the slot,
-  and only the holder delivers and is paid
-- with a window, the last delivery extends the time to attest past the
-  deadline but not the time to fund; the evaluator can attest within it,
-  `ob_close` is refused until it ends, and silence then resolves as
-  `accepted` and pays the split; partial delivery, or no window, expires
-- re-queuing a failed transfer and retrying it with `ob_close`
-- deletion only after a zero balance read; nonzero unattributed balances
-  are retained even after many blocks, including delayed refunds; an unreadable
-  balance changes nothing
-- a lost payout callback leaves no recovery path (the known limit above)
-- worst-case state size
-- the pinned `Params` and initial-state vectors (`--test vectors`)
-
-Established for `extents-spec` by `cargo test -p extents-spec`: both vectors
-hash to the independently computed values, and documents not in normal form,
-with an unbounded `numeric_match`, three `llm_judge` criteria or only
-`llm_judge` criteria, a verdict
-contradicting the results (including `achieved` with a criterion skipped), a
-missing result, the wrong spec, or a fetched criterion passed without evidence
-are rejected; a fetched criterion may fail without evidence.
+Tested beyond the rules: the events for commitments and allocations, including the review hash;
+committing, withdrawing, delivering, attesting and cancelling through `on_auth`; the worst-case
+state size; and that a lost payout callback leaves no recovery path (the known limit above).
 
 Established on testnet against Tidepool's Verifier, the same v0.4.5 build as
 mainnet `intents.near`, by [`e2e/`](e2e/README.md) (2026-11-20). The contract
@@ -374,10 +330,12 @@ the full sandbox suite on that exact file first. All ten scenarios pass, 170 of
 directories are ignored by Git (see [`e2e/results/RESULTS.md`](e2e/results/RESULTS.md)),
 so re-run [`e2e/`](e2e/README.md) to reproduce them.
 
-[Release](#release), [cancel](#cancel) and [withdrawal](#withdrawal) change
-the contract's code hash, so the published build has none of them and none has
-run on testnet. Cancel and withdrawal are covered by unit tests only; release
-also by `sandbox/tests/release.rs`.
+[Release](#release), [cancel](#cancel) and [withdrawal](#withdrawal) are in a
+later build, published on 2026-11-23 as global code
+`FPkPcDq1zMgkWXtdH98F1uR292PTMSF6mSjDiUXnVXyB` (SHA-256 `d5d774ac…`), the
+reproducible build of commit `541a4e8`, which passed the 31 sandbox tests on
+that exact file first. Its testnet scenarios had not finished when this was
+written.
 
 - **Deployment.** Publishing by code hash cost 32.48 NEAR (10× storage for
   324,728 bytes). `StateInit` deploys at the account id derived from

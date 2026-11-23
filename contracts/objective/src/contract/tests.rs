@@ -162,6 +162,7 @@ fn owed(contract: &Contract) -> BTreeMap<Recipient, u128> {
     contract.ob_view().no_verify().owed.clone()
 }
 
+// docs/spec.md, "Payouts are exact"
 #[test]
 fn split_rounds_down_and_gives_remainder_to_sponsor() {
     let p = params(&[333_334, 333_333, 333_333], 60);
@@ -213,6 +214,7 @@ fn recipient_json_round_trips() {
     );
 }
 
+// docs/spec.md, "A failed payout stays owed until it is retried"
 #[test]
 fn achieved_pays_contributors_and_retries_failures() {
     let p = params(&[700_000, 300_000], 3600);
@@ -273,6 +275,7 @@ fn achieved_pays_contributors_and_retries_failures() {
     assert!(owed(&contract).is_empty());
 }
 
+// docs/spec.md, "Payouts are exact"
 #[test]
 fn failed_verdict_returns_everything_to_sponsor() {
     let p = params(&[1_000_000], 3600);
@@ -298,6 +301,7 @@ fn event(name: &str) -> serde_json::Value {
         .clone()
 }
 
+// docs/spec.md, "A contributor commits before the deadline"
 #[test]
 fn contributors_commit_once_before_verdict_and_deadline() {
     let p = params(&[HALF, HALF], 3600);
@@ -341,6 +345,7 @@ fn contributors_commit_once_before_verdict_and_deadline() {
     ));
 }
 
+// docs/spec.md, "Paying out needs every slot delivered"
 #[test]
 fn achieved_requires_every_delivery() {
     let p = params(&[HALF, HALF], 3600);
@@ -403,6 +408,7 @@ fn commits_and_attests_through_auth_call() {
     assert_eq!(event("resolved")["outcome"], "achieved");
 }
 
+// docs/spec.md, "A delivery is final"
 #[test]
 fn contributors_deliver_once_after_committing() {
     let p = params(&[HALF, HALF], 3600);
@@ -477,6 +483,7 @@ fn full_delivery_opens_the_acceptance_window() {
     );
 }
 
+// docs/spec.md, "The evaluator attests before the last moment to attest"
 #[test]
 fn evaluator_attests_within_the_window_after_the_deadline() {
     let p = windowed(&[1_000_000], -1, 3600);
@@ -496,6 +503,7 @@ fn evaluator_attests_within_the_window_after_the_deadline() {
     );
 }
 
+// docs/spec.md, "Silence fails closed unless the terms say otherwise"
 #[test]
 fn silence_after_full_delivery_is_accepted() {
     let p = windowed(&[700_000, 300_000], -1, 3600);
@@ -524,6 +532,7 @@ fn silence_after_full_delivery_is_accepted() {
     );
 }
 
+// docs/spec.md, "Silence fails closed unless the terms say otherwise"
 #[test]
 fn silence_expires_unless_every_contributor_delivered_under_a_window() {
     for (p, delivered) in [
@@ -556,6 +565,7 @@ fn deliver_all_then_attest() {
     assert_eq!(event("resolved")["outcome"], "achieved");
 }
 
+// docs/spec.md, "One verdict"; docs/spec.md, "The evaluator attests before the last moment to attest"
 #[test]
 fn only_evaluator_attests_once_before_deadline() {
     let p = params(&[1_000_000], 3600);
@@ -591,6 +601,7 @@ fn only_evaluator_attests_once_before_deadline() {
 /// The sponsor may concede: once every slot has delivered, it releases its
 /// own funding to the contributors without the evaluator. It is recorded as
 /// `released`, never as the evaluator's verdict.
+// docs/spec.md, "The sponsor may release but never fail"; docs/spec.md, "Paying out needs every slot delivered"
 #[test]
 fn sponsor_releases_once_every_slot_delivered() {
     let p = params(&[700_000, 300_000], 3600);
@@ -632,6 +643,7 @@ fn sponsor_releases_once_every_slot_delivered() {
 
 /// Releasing pays others out of the sponsor's own funding. Taking it back is
 /// a judgement on the contributors' work, which stays the evaluator's.
+// docs/spec.md, "The sponsor may release but never fail"
 #[test]
 fn sponsor_can_never_attest_failed() {
     let p = params(&[1_000_000], 3600);
@@ -698,6 +710,7 @@ fn a_sponsor_who_evaluates_attests_as_the_evaluator() {
     assert_eq!(event("resolved")["outcome"], "achieved");
 }
 
+// docs/spec.md, "Silence fails closed unless the terms say otherwise"
 #[test]
 fn close_expires_only_after_deadline() {
     let p = params(&[1_000_000], 3600);
@@ -733,6 +746,7 @@ fn settled(shares: &[u32]) -> (Contract, Params) {
     (contract, p)
 }
 
+// docs/spec.md, "Deletion only at a zero balance"
 #[test]
 fn unattributed_balance_is_retained_until_empty() {
     let (mut contract, _) = settled(&[1_000_000]);
@@ -797,6 +811,7 @@ impl<T> DetachIfPromise for PromiseOrValue<T> {
     }
 }
 
+// docs/spec.md, "The address derives from the terms"
 #[test]
 fn rejects_tampered_params() {
     let p = params(&[1_000_000], 3600);
@@ -821,6 +836,7 @@ fn the_window_does_not_extend_funding() {
     fund(&mut contract, &p, "sponsor.test", 1);
 }
 
+// docs/spec.md, "Only the sponsor funds"
 #[test]
 #[should_panic(expected = "unauthorized")]
 fn only_sponsor_funds() {
@@ -829,6 +845,7 @@ fn only_sponsor_funds() {
     fund(&mut contract, &p, "c0.test", 10);
 }
 
+// docs/spec.md, "Deletion only at a zero balance"
 #[test]
 fn an_unsettled_objective_never_deletes() {
     let p = params(&[1_000_000], 3600);
@@ -861,6 +878,7 @@ fn rejects_other_tokens() {
     );
 }
 
+// docs/spec.md, "One verdict"
 #[test]
 #[should_panic(expected = "already resolved")]
 fn rejects_funding_after_verdict() {
@@ -930,6 +948,7 @@ fn backed(commit_by_in: i64) -> Params {
     }
 }
 
+// docs/spec.md, "A backup takes an empty slot only after commit-by"; docs/spec.md, "Payouts are exact"
 #[test]
 fn backup_takes_an_empty_slot_after_commit_by_and_is_paid() {
     let p = backed(-1);
@@ -972,6 +991,7 @@ fn backup_takes_an_empty_slot_after_commit_by_and_is_paid() {
     );
 }
 
+// docs/spec.md, "A backup takes an empty slot only after commit-by"
 #[test]
 fn before_commit_by_only_the_listed_contributor_commits() {
     let p = backed(3000);
@@ -986,6 +1006,7 @@ fn before_commit_by_only_the_listed_contributor_commits() {
     assert_eq!(contract.ob_view().no_verify().taken, 0);
 }
 
+// docs/spec.md, "A backup takes an empty slot only after commit-by"; docs/spec.md, "Only the holder acts for a slot"
 #[test]
 fn after_commit_by_the_first_to_commit_holds_the_slot() {
     let p = backed(-1);
@@ -1069,6 +1090,7 @@ fn a_sponsor_holding_a_slot_is_reported_its_whole_payout() {
 /// than the Verifier would let that account act as any role, e.g. attest
 /// `failed` as the evaluator. Such Params never validate, so they have no
 /// initial state and no address.
+// docs/spec.md, "Only the Verifier relays signed calls"
 #[test]
 fn auth_caller_must_be_the_verifier() {
     let p = Params {
@@ -1115,6 +1137,7 @@ fn fund_as(contract: &mut Contract, params: &Params, account: AccountId, code: A
 /// and the attest deadline already past, which would let `ob_close` pay out
 /// with no commitment or verdict. It cannot sit at the derived address, so
 /// funding it is refused.
+// docs/spec.md, "The address derives from the terms"
 #[test]
 #[should_panic(expected = "this account is not the one")]
 fn funding_refuses_a_hand_built_state() {
@@ -1133,6 +1156,7 @@ fn funding_refuses_a_hand_built_state() {
 
 /// Code referenced by account id can be replaced by that account; funding is
 /// refused unless the code is fixed by hash.
+// docs/spec.md, "The address derives from the terms"
 #[test]
 #[should_panic(expected = "this account is not the one")]
 fn funding_refuses_code_that_can_be_replaced() {
@@ -1282,6 +1306,7 @@ fn times_outside_i64_nanoseconds_are_refused() {
 /// The sponsor takes its funding back while no slot is committed: nobody has
 /// a claim on it yet. It is recorded as `cancelled`, and the objective takes
 /// no further funding or commitment.
+// docs/spec.md, "The sponsor may cancel until someone commits"
 #[test]
 fn sponsor_cancels_while_no_slot_is_committed() {
     let p = params(&[700_000, 300_000], 3600);
@@ -1321,6 +1346,7 @@ fn sponsor_cancels_while_no_slot_is_committed() {
 
 /// A commitment locks the funding: from then on the sponsor cannot cancel.
 /// Withdrawals that empty every slot unlock it again.
+// docs/spec.md, "The sponsor may cancel until someone commits"
 #[test]
 fn a_commitment_locks_the_funding_until_it_is_withdrawn() {
     let p = params(&[HALF, HALF], 3600);
@@ -1365,6 +1391,7 @@ fn cancelling_an_unfunded_objective_sends_nothing() {
     );
 }
 
+// docs/spec.md, "One verdict"
 #[test]
 #[should_panic(expected = "already resolved")]
 fn rejects_funding_after_a_cancel() {
@@ -1377,6 +1404,7 @@ fn rejects_funding_after_a_cancel() {
 
 /// Only whoever holds a slot gives it back, only before delivering. The slot
 /// is then empty: the same contributor may commit to it again.
+// docs/spec.md, "A holder may withdraw until it delivers"
 #[test]
 fn a_holder_withdraws_before_delivering_and_the_slot_reopens() {
     let p = params(&[HALF, HALF], 3600);
@@ -1418,6 +1446,7 @@ fn a_holder_withdraws_before_delivering_and_the_slot_reopens() {
     assert_eq!(contract.ob_view().no_verify().delivered, 0b01);
 }
 
+// docs/spec.md, "A holder may withdraw until it delivers"; docs/spec.md, "One verdict"
 #[test]
 fn nobody_withdraws_after_a_verdict_or_the_deadline() {
     let p = params(&[1_000_000], 3600);
@@ -1446,6 +1475,7 @@ fn nobody_withdraws_after_a_verdict_or_the_deadline() {
 /// A slot's backup can take it once its contributor withdraws, and only the
 /// one who holds a slot can give it back. When the backup leaves in turn, the
 /// slot is the listed contributor's to take again.
+// docs/spec.md, "Only the holder acts for a slot"; docs/spec.md, "A holder may withdraw until it delivers"
 #[test]
 fn a_withdrawn_slot_passes_between_contributor_and_backup() {
     let p = backed(-1);

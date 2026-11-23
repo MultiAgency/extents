@@ -1,8 +1,7 @@
 /**
  * An objective's documents, published with FastData under the objective's
- * own account: `__fastdata_kv` on it (which fails, as the contract has no
- * such method, but is indexed all the same), read back from FastNEAR's KV
- * API. Anyone can write there, so a reader trusts a row only if its writer
+ * own account: `__fastdata_kv` on it (a no-op the contract accepts, which
+ * FastData indexes), read back from FastNEAR's KV API. Anyone can write there, so a reader trusts a row only if its writer
  * holds that role in `Params` and its value matches the on-chain hash.
  */
 import { DOCUMENT_KEYS, FASTDATA_URL } from "../shared/config.ts";

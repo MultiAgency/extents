@@ -45,6 +45,7 @@ fn assert_paid(payouts: &[&Receipt], count: usize) {
     );
 }
 
+/// docs/spec.md, "Paying out needs every slot delivered"; docs/spec.md, "Payouts are exact"; docs/spec.md, "Deletion only at a zero balance"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn achieved_pays_shares_from_a_zero_balance() -> Result<()> {
@@ -103,6 +104,7 @@ async fn achieved_pays_shares_from_a_zero_balance() -> Result<()> {
     Ok(())
 }
 
+/// docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn failed_returns_everything_to_the_sponsor() -> Result<()> {
@@ -131,6 +133,7 @@ async fn failed_returns_everything_to_the_sponsor() -> Result<()> {
     Ok(())
 }
 
+/// docs/spec.md, "Silence fails closed unless the terms say otherwise"; docs/spec.md, "Payouts are exact"; docs/spec.md, "Deletion only at a zero balance"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn expired_returns_funds_and_deletion_pays_the_closer() -> Result<()> {
@@ -200,6 +203,8 @@ async fn expired_returns_funds_and_deletion_pays_the_closer() -> Result<()> {
 /// account, funds an objective: a signed `transfer` intent whose `msg` makes
 /// the Verifier call the objective's `mt_on_transfer` with the signer as
 /// sender. Anyone else's funding is refused and refunded by the Verifier.
+///
+/// docs/spec.md, "Only the sponsor funds"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn fund_by_signed_transfer_intent() -> Result<()> {
@@ -251,6 +256,7 @@ async fn fund_by_signed_transfer_intent() -> Result<()> {
     Ok(())
 }
 
+/// docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn commit_and_attest_by_signed_intent() -> Result<()> {
@@ -336,6 +342,7 @@ fn assert_eleven_payouts_fit(outcome: &extents_sandbox::Outcome) {
     );
 }
 
+/// docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn ten_contributors_settle_in_one_transaction() -> Result<()> {
@@ -352,6 +359,7 @@ async fn ten_contributors_settle_in_one_transaction() -> Result<()> {
     Ok(())
 }
 
+/// docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn ten_contributors_settle_by_signed_intent() -> Result<()> {

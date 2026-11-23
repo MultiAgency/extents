@@ -124,19 +124,15 @@ export async function deployObjective(params: Params, spec?: Spec): Promise<{ ac
 /**
  * Publishes the terms from the deployer, for a sponsor with no NEAR key to
  * publish them; the reader accepts the deployer's spec row. Skipped once they
- * are readable. The receipt fails by design (see `calls.publish`).
+ * are readable.
  */
 async function publishTerms(objective: string, params: Params, spec: Spec, codeHash: string): Promise<boolean> {
   if (await readLaunchDocuments(objective, codeHash)) return false;
   const { near, accountId: signer } = deployer();
   const call = calls.publish(objective, { params, spec });
-  try {
-    await near
-      .transaction(signer)
-      .functionCall(call.receiver, call.method, call.args, { gas: `${call.tgas} Tgas` })
-      .send({ waitUntil: "FINAL" });
-  } catch (e) {
-    if (!/MethodNotFound|MethodResolveError/.test(e instanceof Error ? e.message : String(e))) throw e;
-  }
+  await near
+    .transaction(signer)
+    .functionCall(call.receiver, call.method, call.args, { gas: `${call.tgas} Tgas` })
+    .send({ waitUntil: "FINAL" });
   return true;
 }

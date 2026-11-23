@@ -53,6 +53,7 @@ async fn assert_paid(
     Ok(())
 }
 
+/// docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn implicit_accounts_sponsor_and_evaluate() -> Result<()> {
@@ -95,6 +96,8 @@ async fn implicit_accounts_sponsor_and_evaluate() -> Result<()> {
 /// A Sputnik DAO, running mainnet's agency DAO code, sponsors and evaluates
 /// by `FunctionCall` proposals: one to fund, one to attest. Each runs when
 /// the council's last approval lands, with the DAO as the caller.
+///
+/// docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn dao_sponsors_and_evaluates_by_proposal() -> Result<()> {
@@ -142,6 +145,8 @@ async fn dao_sponsors_and_evaluates_by_proposal() -> Result<()> {
 /// The heaviest attestation by proposal: ten contributors and eleven payouts
 /// in an `ob_attest` with `Params::attest_gas` (210 Tgas), inside a vote
 /// prepaid with 300 Tgas.
+///
+/// docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn dao_attests_for_ten_contributors_by_proposal() -> Result<()> {

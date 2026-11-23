@@ -10,6 +10,8 @@ const AMOUNT: u128 = 1_000;
 
 /// `c2` backs `c1`. `c1` never commits; after `commit_by`, `c2` takes the slot
 /// and the achieved verdict pays it `c1`'s share.
+///
+/// docs/spec.md, "A backup takes an empty slot only after commit-by"; docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn backup_takes_an_empty_slot_and_is_paid() -> Result<()> {

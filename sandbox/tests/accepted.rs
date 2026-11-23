@@ -29,6 +29,7 @@ async fn committed(env: &Env) -> Result<(Objective, Params)> {
     Ok((objective, params))
 }
 
+/// docs/spec.md, "Silence fails closed unless the terms say otherwise"; docs/spec.md, "The evaluator attests before the last moment to attest"; docs/spec.md, "Payouts are exact"; docs/spec.md, "Deletion only at a zero balance"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn silence_after_full_delivery_is_accepted() -> Result<()> {
@@ -98,6 +99,7 @@ async fn silence_after_full_delivery_is_accepted() -> Result<()> {
     Ok(())
 }
 
+/// docs/spec.md, "The evaluator attests before the last moment to attest"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn the_evaluator_can_attest_inside_the_window() -> Result<()> {
@@ -123,6 +125,7 @@ async fn the_evaluator_can_attest_inside_the_window() -> Result<()> {
     Ok(())
 }
 
+/// docs/spec.md, "Silence fails closed unless the terms say otherwise"; docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn partial_delivery_expires() -> Result<()> {

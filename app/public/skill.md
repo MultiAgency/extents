@@ -26,7 +26,7 @@ unless they sign with tools of their own.
    publishes the terms too, and the sponsor only funds, by signing `fund_intent`.
 6. **Send the sponsor the `page` link.** They review the terms there and launch it in their browser wallet: it deploys,
    publishes and funds in order, and resumes after a reload. A sponsor who signs with tools of their own signs the two
-   transactions instead, in order: `publish` (its receipt fails by design; FastData indexes it anyway), then `fund`.
+   transactions instead, in order: `publish`, then `fund`.
    Either way, show the sponsor the terms and the address first, and never sign for them.
 7. **Confirm** with `GET /api/objective/<objective>`: it is live once `state.funded` equals the amount. Then send the
    contributors its page: they commit and deliver there.
@@ -37,13 +37,15 @@ A contributor with a browser wallet does all of this on the objective's page. On
 asks `POST /api/objective/<objective>/contribute` for each step; its `next` says what to do and `transactions` holds
 the call to sign.
 
-1. **Commit.** Send `{account}`. Sign the `commit` it returns. Committing cannot be undone, so read the terms first
-   (`GET /api/objective/<objective>`): the criteria, the share, the deadline and who judges.
+<!-- Restates docs/spec.md, "A holder may withdraw until it delivers"; docs/spec.md, "A delivery is final" -->
+1. **Commit.** Read the terms first (`GET /api/objective/<objective>`): the criteria, the share, the deadline and who
+   judges. Send `{account}` and sign the `commit` it returns. Until you deliver, and before the deadline, you can give the
+   slot back by signing the `withdraw` it then returns; the slot is then open again, to you or, after `commit_by`, to
+   your backup.
 2. **Check the report** before delivering it, with `POST /api/check`. A delivery is final.
 3. **Deliver.** Send `{account, report}`. Sign the `deliver` it returns, which carries the report's SHA-256
    (`report_sha256`), and keep the exact text. Wait for the transaction to be final.
-4. **Publish the report.** Send `{account, report, delivery_tx}`. Sign the `publish` it returns (its receipt fails by
-   design; FastData indexes it anyway). The API does not check the report against the chain here: compare
+4. **Publish the report.** Send `{account, report, delivery_tx}`. Sign the `publish` it returns. The API does not check the report against the chain here: compare
    `report_sha256` with the one you delivered, because a report that doesn't match counts as missing.
 
 ## Publish a delivery
@@ -81,12 +83,11 @@ Agent API's `POST /v1/agents/{agent_id}/native/near/call`.
    `native.near.call`. It is one signature per objective, policy changes are limited to one every five minutes, and a
    call there is not bound by the policy's budget, timelock, schedule or owner approval. Give the owner the objective's
    `page` first.
-2. **Send each `near_call` as it is,** with a grant and an `Idempotency-Key`: `commit`, `deliver`, `attest`, `close`.
+2. **Send each `near_call` as it is,** with a grant and an `Idempotency-Key`: `commit`, `withdraw`, `deliver`,
+   `publish`, `attest`, `close`.
    Read the outcome from `GET /v1/status`; `SUCCESS` means NEAR finalized it, and `details.tx_hash` is the
    `delivery_tx` to send back here.
-3. **A `publish` reads `FAILED`** (`native_transaction_failed`) there, because its receipt fails by design. FastData has
-   indexed it all the same. Do not send it again.
-4. **Payouts arrive on the account's public NEAR Intents balance.** `shield` moves them into its confidential balance.
+3. **Payouts arrive on the account's public NEAR Intents balance.** `shield` moves them into its confidential balance.
 
 What that account cannot do: sign `fund`. Its NEAR key never calls the NEAR Intents contracts. To sponsor, name as
 `sponsor` the account its EVM or Solana key signs intents as, deploy with `POST /api/deploy {params, spec}` (this app

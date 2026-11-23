@@ -96,8 +96,6 @@ export async function setup(
                       },
                     ],
                   };
-                // like a real wallet: the FastData write's receipt fails by design
-                if (call.method === "__fastdata_kv") throw new Error("MethodResolveError(MethodNotFound)");
                 const objective = call.args.receiver_id ?? call.receiver;
                 const outcome = {
                   transaction: { hash: `TX-${call.method}`, signer_id: signer },
@@ -106,11 +104,14 @@ export async function setup(
                     {
                       outcome: {
                         executor_id: objective,
-                        logs: [
-                          call.method === "ob_deliver"
-                            ? `EVENT_JSON:${JSON.stringify({ standard: "extents-objective", event: "delivered", data: { contributor: signer, hash: (call.args as any).delivery.hash } })}`
-                            : 'EVENT_JSON:{"standard":"extents-objective","version":"0.1.0","event":"funded","data":{}}',
-                        ],
+                        logs:
+                          call.method === "__fastdata_kv"
+                            ? []
+                            : [
+                                call.method === "ob_deliver"
+                                  ? `EVENT_JSON:${JSON.stringify({ standard: "extents-objective", event: "delivered", data: { contributor: signer, hash: (call.args as any).delivery.hash } })}`
+                                  : 'EVENT_JSON:{"standard":"extents-objective","version":"0.1.0","event":"funded","data":{}}',
+                              ],
                         status: { SuccessValue: "" },
                       },
                     },

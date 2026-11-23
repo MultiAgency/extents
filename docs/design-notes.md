@@ -1,7 +1,8 @@
 # Contract design decisions
 
-These decisions describe the current implementation. README.md documents the interface;
-`contracts/objective/src` and the pinned vectors define its encoding.
+These decisions describe the current implementation and why it is so. The rules themselves are in
+[`docs/spec.md` §7](spec.md#7-rules); README.md documents the interface; `contracts/objective/src` and
+the pinned vectors define its encoding.
 
 ## Sponsor-only funding
 

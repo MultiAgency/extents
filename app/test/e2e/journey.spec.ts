@@ -112,3 +112,34 @@ test("once everyone delivered, the sponsor may release the payment without the e
   await expect.poll(() => chain.txs.map((t) => t.calls[0]!.method)).toEqual(["ob_attest"]);
   expect(chain.txs[0]!.calls[0]).toMatchObject({ receiver: ADDRESS, args: { params: PARAMS, attestation: { verdict: "achieved" } } });
 });
+
+test("while nobody has committed, the sponsor may cancel and take the funding back", async ({ page }) => {
+  const chain = await setup(page, { txs: [], published: true, funded: true }, "customer.testnet");
+  const set = await objective(page, {});
+  await page.goto(`/o/${ADDRESS}`);
+  const cancel = page.getByRole("region", { name: "Cancel" });
+  await cancel.getByRole("button", { name: "Cancel and refund" }).click();
+  await expect.poll(() => chain.txs.map((t) => t.calls[0]!.method)).toEqual(["ob_cancel"]);
+  expect(chain.txs[0]!.calls[0]).toMatchObject({ receiver: ADDRESS, args: { params: PARAMS } });
+
+  set({ committed: 1 });
+  await page.reload();
+  await expect(next(page)).toContainText("Waiting for venue.testnet to commit");
+  await expect(page.getByRole("region", { name: "Cancel" })).toHaveCount(0);
+
+  set({ funded: "0", outcome: "cancelled" });
+  await page.reload();
+  await expect(next(page)).toHaveText("Settled: cancelled, and the sponsor is refunded.");
+  await expect(step(page, "Commit")).toHaveText("Commit (not needed)");
+});
+
+test("a committed contributor may withdraw before delivering", async ({ page }) => {
+  const chain = await setup(page, { txs: [], published: true, funded: true }, "organizer.testnet");
+  await objective(page, { committed: 1 });
+  await page.goto(`/o/${ADDRESS}`);
+  const part = page.getByRole("region", { name: "Your part" });
+  await expect(page.getByRole("region", { name: "Cancel" })).toHaveCount(0);
+  await part.getByRole("button", { name: "Withdraw" }).click();
+  await expect.poll(() => chain.txs.map((t) => t.calls[0]!.method)).toEqual(["ob_withdraw"]);
+  expect(chain.txs[0]!.calls[0]).toMatchObject({ receiver: ADDRESS, args: { params: PARAMS } });
+});

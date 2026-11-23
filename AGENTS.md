@@ -4,13 +4,20 @@ Extents is a NEAR objective escrow, a Rust client and test harnesses, and a Bun/
 
 ## Commands
 
-Run from the repository root:
+Run every check from the repository root, cheapest first; it ends with a `next:` line naming what to
+fix first, and `--sandbox` adds the Docker sandbox tests:
 
 ```sh
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo fmt --all -- --check
+scripts/check
 ```
+
+Its stages are the Rust format, clippy (native and wasm32 with `--features=contract`) and tests, then,
+from `app`, `pnpm typecheck`, `pnpm test` and `pnpm test:e2e`. CI runs all of them but the sandbox.
+Browser tests start local Bun, mock-model and mock-chain servers. Live sandbox tests need Docker:
+`cargo nextest run -p extents-sandbox --run-ignored only` (`.config/nextest.toml` runs three
+at a time and stops a hung test after 20 minutes).
+Set `EXTENTS_OBJECTIVE_WASM` to test a particular artifact. Public testnet e2e commands send
+transactions and spend testnet balances; run them only when requested.
 
 Build the contract from `contracts/objective`:
 
@@ -18,14 +25,20 @@ Build the contract from `contracts/objective`:
 cargo near build non-reproducible-wasm --locked --features=contract --abi-features=abi,contract
 ```
 
-From `app`, run `pnpm test`, `pnpm typecheck`, and `pnpm exec playwright test`.
-Browser tests start local Bun and mock-model servers. Live sandbox tests need Docker:
-`cargo nextest run -p extents-sandbox --run-ignored only` (`.config/nextest.toml` runs three
-at a time and stops a hung test after 20 minutes).
-Set `EXTENTS_OBJECTIVE_WASM` to test a particular artifact. Public testnet e2e commands send
-transactions and spend testnet balances; run them only when requested.
-
 ## Rules
+
+The protocol's rules are the `####` headings of [`docs/spec.md` §7](docs/spec.md#7-rules). A
+heading is the rule's name: renaming one removes it and adds another.
+
+- A test that checks a rule cites it in a comment, `docs/spec.md, "<heading>"`. Cite only what the
+  test asserts. `app/test/rules.test.ts` fails on a rule no test cites, and on a citation or a link
+  into `docs/spec.md` that names no heading.
+- Don't restate a rule. Docs link to its heading. Text a reader cannot follow a link from (a model's
+  instructions, `skill.md`, `llms.txt`, page copy) may restate it, with a citation next to it.
+- Changing what the contract does means changing its rule in the same change, with its tests.
+- Before publishing a contract build, run `bun scripts/rules-changed.ts <last published commit>`
+  from `app` and give its output with the publish decision: every rule added, removed or reworded,
+  and everything that cites it.
 
 - Preserve the Params and state encodings, deterministic account derivation, and JSON wire formats.
   Rust and TypeScript share vectors in `contracts/objective/tests/vectors` and `crates/spec/tests/vectors`.

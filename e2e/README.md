@@ -74,7 +74,7 @@ Commands run from `extents/`.
 ## Run
 
 ```sh
-cargo run -p extents-e2e -- run deposit achieved failed expired auth-call max max-auth-call accepted dao-objective dao-intent-objective
+cargo run -p extents-e2e -- run deposit achieved failed expired auth-call max max-auth-call accepted dao-objective dao-intent-objective release cancel withdraw
 ```
 
 | Scenario    | What it shows                                                                                                                                                                                                                                                    |
@@ -88,6 +88,9 @@ cargo run -p extents-e2e -- run deposit achieved failed expired auth-call max ma
 | `max-auth-call` | As `max`, with the evaluator attesting by a signed `auth_call` intent whose `min_gas` is `Params::attest_gas` (210 Tgas; the recorded run used 190). Records how much gas the Verifier forwards to `on_auth`.                                                                                                     |
 | `dao-objective` | The DAO's own account (`e2e-agency.sputnikv2.testnet`) is sponsor and evaluator, as an agency's treasury is. The sponsor first gives it the amount on the Verifier. It funds by a `FunctionCall` proposal to `mt_transfer_call` and attests by one to `ob_attest`, each approved by both council members. Contributors are `c2` and `c3`, who commit and deliver. |
 | `dao-intent-objective` | As `dao-objective`, for the DAO's MPC-derived account, which the sponsor likewise gives the amount first. It funds with a `transfer` intent carrying the fund `msg`, and attests with an `auth_call` intent, each signed by vote through `v1.signer-prod.testnet` and relayed. The intents' deadline covers the DAO's whole proposal period plus 10 minutes. |
+| `release` | The sponsor releases the payment itself, without the evaluator. Its achieved verdict is refused until both contributors have delivered, then resolves as `released` and pays the split exactly. |
+| `cancel` | The sponsor's cancel is refused while a contributor is committed. Once it withdraws (a `withdrawn` event), the cancel returns everything to the sponsor as `cancelled`, and a later commitment is refused. |
+| `withdraw` | `c2` backs `c1`. `c1` commits and withdraws before `commit_by`; after it, `c2` takes the empty slot, and `c1` can neither take it back nor withdraw it. Delivered work cannot be withdrawn, and the achieved verdict pays `c2` the slot's share. |
 | `accepted`  | `acceptance_window_secs` is 180 s. Both contributors commit and deliver; the last delivery's `attest_by` falls after the deadline. `ob_close` is refused after the deadline while the window is open, and after it resolves as `accepted` with no review, paying the 70/30 split. Needs a contract published after `ob_deliver` was added. |
 
 Every scenario except `expired` ends by waiting for its deadline and calling

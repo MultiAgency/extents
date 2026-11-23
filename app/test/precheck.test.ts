@@ -212,6 +212,7 @@ describe("/api/evaluate", () => {
     expect(r.summary.review.verdict).toBe("failed");
   });
 
+  // docs/spec.md, "An outage is never a failed verdict"
   test("results that support no verdict come back without a review", async () => {
     const r = await evaluate({ delivered: 3 }, BOTH, {
       judge: async () => {

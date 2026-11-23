@@ -76,7 +76,7 @@ test("an existing derived objective needs no deployer credentials", async () => 
   expect(calls.stateInit).not.toHaveBeenCalled();
 });
 
-test("with the spec, the deployer publishes the terms, its receipt failing by design", async () => {
+test("with the spec, the deployer publishes the terms", async () => {
   const code = vectors[0]!.code_hash;
   vi.stubEnv("PUBLIC_OBJECTIVE_CODE_HASH", code);
   vi.stubEnv("DEPLOYER_ACCOUNT_ID", "deployer.testnet");
@@ -99,7 +99,6 @@ test("with the spec, the deployer publishes the terms, its receipt failing by de
     0,
   );
   calls.exists.mockResolvedValue(true); // already deployed: only the terms are missing
-  calls.publish.mockRejectedValue(new Error("MethodResolveError(MethodNotFound)"));
 
   expect(await deployObjective(o.params, o.spec)).toEqual({ accountId: o.accountId, published: true });
   expect(calls.stateInit).not.toHaveBeenCalled();

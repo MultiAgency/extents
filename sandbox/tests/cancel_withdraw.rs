@@ -65,6 +65,7 @@ async fn assert_cancelled(
     Ok(())
 }
 
+/// docs/spec.md, "The sponsor may cancel until someone commits"; docs/spec.md, "One verdict"; docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn sponsor_cancels_before_any_commitment() -> Result<()> {
@@ -80,6 +81,7 @@ async fn sponsor_cancels_before_any_commitment() -> Result<()> {
     assert_cancelled(&env, &objective, &cancelled, sponsor_before).await
 }
 
+/// docs/spec.md, "The sponsor may cancel until someone commits"; docs/spec.md, "A holder may withdraw until it delivers"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn a_commitment_locks_the_funding_until_it_is_withdrawn() -> Result<()> {
@@ -112,6 +114,8 @@ async fn a_commitment_locks_the_funding_until_it_is_withdrawn() -> Result<()> {
 /// its backup: whoever commits first holds it, only the holder can withdraw,
 /// and nobody can withdraw after delivering. The holder at the verdict is
 /// paid.
+///
+/// docs/spec.md, "A holder may withdraw until it delivers"; docs/spec.md, "Only the holder acts for a slot"; docs/spec.md, "A backup takes an empty slot only after commit-by"; docs/spec.md, "A delivery is final"; docs/spec.md, "Payouts are exact"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn a_withdrawn_slot_passes_between_contributor_and_backup() -> Result<()> {
@@ -158,6 +162,8 @@ async fn a_withdrawn_slot_passes_between_contributor_and_backup() -> Result<()> 
 }
 
 /// Withdrawal and cancellation by signed `auth_call` intent.
+///
+/// docs/spec.md, "The sponsor may cancel until someone commits"; docs/spec.md, "A holder may withdraw until it delivers"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn withdraw_and_cancel_by_signed_intent() -> Result<()> {

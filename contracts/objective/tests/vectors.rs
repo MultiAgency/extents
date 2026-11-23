@@ -110,6 +110,7 @@ fn vector(name: &str, params: &Params) -> Value {
 
 /// The contract derives its own address with near-sdk when it checks funding;
 /// the pinned account ids come from near-kit. Both must agree.
+// docs/spec.md, "The address derives from the terms"
 #[test]
 fn near_sdk_derives_the_pinned_accounts() {
     use near_sdk::{
@@ -183,6 +184,7 @@ enum Refusal {
 
 /// One params document per rule the contract enforces, each refused. The
 /// TypeScript mirror (`validateParams`) must refuse every one as well.
+// docs/spec.md, "Shares sum to exactly 100%"; docs/spec.md, "The evaluator holds no slot"; docs/spec.md, "Backups need a commit-by time"; docs/spec.md, "Only the Verifier relays signed calls"; docs/spec.md, "Silence fails closed unless the terms say otherwise"
 #[test]
 fn rejected_params() {
     use Refusal::{Invalid, Parse};

@@ -115,6 +115,8 @@ export function ObjectivePage({ address }: { address: string }) {
   const journey = objectiveJourney(docs.params, view.state, Date.now());
   // everyone delivered and the verdict is pending: the sponsor may pay out without it, on a build that allows it
   const releasing = sponsorMayRelease() && Boolean(near) && accountId === docs.params.sponsor && !evaluating && journey.current === "judge";
+  // nobody holds a slot yet: the sponsor may still call it off and take any funding back
+  const cancelling = Boolean(near) && accountId === docs.params.sponsor && !view.state?.outcome && !view.state?.committed;
   // the map stays inked once the escrow paid out, not only while it holds the money
   const paid = paysContributors(view.state?.outcome);
   const you =
@@ -163,6 +165,16 @@ export function ObjectivePage({ address }: { address: string }) {
           )}
           {releasing && near && accountId && (
             <ReleasePayment address={address} account={accountId} params={docs.params} near={near} onChange={refresh} />
+          )}
+          {cancelling && near && accountId && (
+            <CancelObjective
+              address={address}
+              account={accountId}
+              params={docs.params}
+              funded={funded > 0n}
+              near={near}
+              onChange={refresh}
+            />
           )}
           <section aria-label="Contributors" className="flex flex-col gap-2">
             <h2 className="font-display text-lg font-semibold">Who has committed</h2>
@@ -291,6 +303,7 @@ function SponsorLaunch({ link, draft, onDone }: { link: LaunchLink; draft: Draft
   return <Plat draft={draft} {...(model ? { launch: model } : {})} />;
 }
 
+// Its copy restates: docs/spec.md, "A holder may withdraw until it delivers"; docs/spec.md, "A delivery is final"
 function Contributor(props: {
   address: string;
   account: string;
@@ -339,6 +352,7 @@ function Contributor(props: {
   };
 
   const commit = act(() => sign(near, account, calls.commit(address, params)));
+  const withdraw = act(() => sign(near, account, calls.withdraw(address, params), "FINAL"));
   const deliver = act(async () => {
     localStorage.setItem(proofKey, JSON.stringify({ text: report }));
     const hash = reportHash(report);
@@ -355,8 +369,8 @@ function Contributor(props: {
       {!committed ? (
         <>
           <p className="text-ink-soft">
-            Commit to deliver your part. {funded ? "The money is already in escrow." : "The sponsor hasn't funded it yet."} Committing can't
-            be undone.
+            Commit to deliver your part. {funded ? "The money is already in escrow." : "The sponsor hasn't funded it yet."} Until you
+            deliver, you can withdraw and give the slot back.
           </p>
           <button
             type="button"
@@ -421,6 +435,18 @@ function Contributor(props: {
             className="self-start rounded-full bg-action px-5 py-2.5 font-display font-semibold text-action-ink aria-disabled:opacity-60"
           >
             {busy ? "Signing…" : "Deliver"}
+          </button>
+          <p className="text-ink-soft">
+            Can't deliver after all? Withdraw to give the slot back before the deadline. You can commit again while it's empty
+            {params.backups?.[account] ? `, and after the commit-by time your backup ${params.backups[account]} can take it` : ""}.
+          </p>
+          <button
+            type="button"
+            aria-disabled={busy || undefined}
+            onClick={() => !busy && void withdraw()}
+            className="self-start rounded-full border border-ink px-5 py-2.5 font-display font-semibold aria-disabled:opacity-60"
+          >
+            Withdraw
           </button>
         </>
       )}
@@ -744,6 +770,7 @@ function Evaluator(props: {
  * without waiting for the evaluator, with `ob_attest` achieved. The objective
  * resolves as `released`; the sponsor can never send a failed verdict.
  */
+// Its copy restates: docs/spec.md, "The sponsor may release but never fail"
 function ReleasePayment(props: { address: string; account: string; params: Params; near: Near; onChange: () => Promise<void> }) {
   const { address, account, params, near, onChange } = props;
   const [busy, setBusy] = useState(false);
@@ -778,6 +805,50 @@ function ReleasePayment(props: { address: string; account: string; params: Param
         className="self-start rounded-full bg-sealed px-5 py-2.5 font-display font-semibold text-action-ink aria-disabled:opacity-60"
       >
         {busy ? "Signing…" : "Release payment"}
+      </button>
+      <Alert>{failure}</Alert>
+    </section>
+  );
+}
+
+/** The sponsor calls the objective off while nobody holds a slot: any funding returns to them, and it resolves as cancelled. */
+// Its copy restates: docs/spec.md, "The sponsor may cancel until someone commits"
+function CancelObjective(props: {
+  address: string;
+  account: string;
+  params: Params;
+  funded: boolean;
+  near: Near;
+  onChange: () => Promise<void>;
+}) {
+  const { address, account, params, funded, near, onChange } = props;
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string>();
+  const cancel = async () => {
+    setBusy(true);
+    setFailure(undefined);
+    try {
+      await sign(near, account, calls.cancel(address, params), "FINAL");
+      await onChange();
+    } catch (e) {
+      setFailure(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section aria-label="Cancel" className="flex flex-col gap-3">
+      <p className="text-ink-soft">
+        Nobody has committed yet, so you can still call it off. {funded ? "Your funding comes back to you, and" : "Then"} the objective ends
+        as cancelled. This can't be undone.
+      </p>
+      <button
+        type="button"
+        aria-disabled={busy || undefined}
+        onClick={() => !busy && void cancel()}
+        className="self-start rounded-full border border-ink px-5 py-2.5 font-display font-semibold aria-disabled:opacity-60"
+      >
+        {busy ? "Signing…" : funded ? "Cancel and refund" : "Cancel"}
       </button>
       <Alert>{failure}</Alert>
     </section>

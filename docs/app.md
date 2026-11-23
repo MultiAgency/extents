@@ -57,6 +57,8 @@ and `SCREENS=<dir> pnpm capture:screens` takes screenshots for review.
 - **A contributor** commits, checks a report, then sends its SHA-256 with `ob_deliver` and waits for finality.
   The browser persists the report before signing, then publishes `deliverable = {text, delivery_tx, delivery_signer}`
   to FastData. If publication fails, the contributor can republish the exact report and its delivery proof on the page.
+  Until it delivers, it can withdraw ([rule](spec.md#a-holder-may-withdraw-until-it-delivers)).
+- **The sponsor**, until someone commits, can cancel ([rule](spec.md#the-sponsor-may-cancel-until-someone-commits)).
 - **The evaluator** checks what was delivered (`/api/evaluate`). The reader fetches each report's finalized transaction,
   requires a successful objective receipt with a matching `delivered` event and SHA-256, and resolves backup holders
   from `taken`. Every recorded delivery must be available. The page validates the review and repeats receipt verification
@@ -90,7 +92,7 @@ be checked against the same bytes. `bun scripts/replay.ts` replays a review from
 ## For agents
 
 - The agent API, plain JSON: `POST /api/tools/:name` (the customer agent's tools), `POST /api/draft` (exact `Params`,
-  address, unsigned transactions, and a launch link whose fragment carries the terms to the sponsor's browser), `POST /api/deploy` (with the spec, the deployer also publishes the terms; the reader accepts the spec from the sponsor or the deployer, pinned by `spec_hash` either way, so changing `DEPLOYER_ACCOUNT_ID` leaves terms the old deployer published unread), `POST /api/objective/:id/contribute` (a contributor's commit, delivery and report publication, one step at a time), and `POST /api/objective/:id/review` (the review and the
+  address, unsigned transactions, and a launch link whose fragment carries the terms to the sponsor's browser), `POST /api/deploy` (with the spec, the deployer also publishes the terms; the reader accepts the spec from the sponsor or the deployer, pinned by `spec_hash` either way, so changing `DEPLOYER_ACCOUNT_ID` leaves terms the old deployer published unread), `POST /api/objective/:id/contribute` (a contributor's commit, withdrawal, delivery and report publication, one step at a time), and `POST /api/objective/:id/review` (the review and the
   unsigned calls that publish and attest it, or propose it to a DAO evaluator). Agents prepare; wallets and DAOs sign.
   Every answer about an objective links its page, `/o/<objective>`, where people act in their own wallets.
   Every unsigned call also carries `near_call`: the same call with gas in gas units and deposit in yoctoNEAR, under the
@@ -108,8 +110,8 @@ Money rules:
 - Approval is never settlement.
 - An uncertain outcome blocks a replacement.
 
-Funding is sponsor-only: the sponsor's `mt_transfer_call`, or a `transfer` intent with the fund message from the sponsor's Verifier balance, credits `funded` at once, and anyone else's is refused and refunded. Unattributed balances are retained: elapsed blocks cannot prove a pending refund belongs to the sponsor. `ob_close`
-deletes only once accounted payouts have settled and the Verifier balance is zero.
+Funding is sponsor-only ([rule](spec.md#only-the-sponsor-funds)): the sponsor's `mt_transfer_call`, or a `transfer` intent with the fund message from the sponsor's Verifier balance, credits `funded` at once, and anyone else's is refused and refunded. Unattributed balances are retained: elapsed blocks cannot prove a pending refund belongs to the sponsor. `ob_close`
+deletes only once accounted payouts have settled ([rule](spec.md#deletion-only-at-a-zero-balance)).
 
 ## Open decisions
 
@@ -175,7 +177,8 @@ that metadata is not a runtime gate or proof that tests ran.
 
 `PUBLIC_SPONSOR_RELEASE=1` shows the sponsor a "Release payment" control once every contributor delivered: an
 `ob_attest` achieved signed by the sponsor, which resolves the objective as `released`. Set it only with the code hash of
-a build that has that outcome; the published `4GxG7Nye…` build refuses a sponsor's attestation.
+a build that has that outcome, such as `FPkPcDq1…` (commit `541a4e8`); the earlier `4GxG7Nye…` build refuses a sponsor's
+attestation.
 
 ## Delivery proof
 

@@ -10,6 +10,7 @@ use extents_sandbox::Env;
 
 const AMOUNT: u128 = 1_000_009;
 
+/// docs/spec.md, "A failed payout stays owed until it is retried"; docs/spec.md, "Payouts are exact"; docs/spec.md, "Deletion only at a zero balance"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn failed_payouts_are_requeued_and_retried() -> Result<()> {
@@ -98,6 +99,8 @@ async fn failed_payouts_are_requeued_and_retried() -> Result<()> {
 /// payouts (ten contributors and the sponsor's remainder), then reads the
 /// objective's balance and deletes it, all in one transaction within
 /// `Params::close_gas` (250 Tgas).
+///
+/// docs/spec.md, "A failed payout stays owed until it is retried"; docs/spec.md, "Deletion only at a zero balance"
 #[tokio::test]
 #[ignore = "needs Docker; run with `cargo test -p extents-sandbox -- --ignored`"]
 async fn worst_case_close_retries_eleven_payouts_and_deletes() -> Result<()> {
