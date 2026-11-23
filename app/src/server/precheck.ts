@@ -15,6 +15,7 @@ import { buildReview, summarize, type CheckResult, type Delivered } from "../sha
 import { accountId, parseSpec, type Spec } from "../shared/spec.ts";
 import { deliveredBy, holders, verifyReports } from "../shared/delivery.ts";
 import { checksForRun, runCheck, type CheckDeps, type Deliverable } from "./checks.ts";
+import { ArchiveBudgetError, withObjectiveBudget, type ObjectiveUsage } from "./archive.ts";
 import { canonicalize } from "../shared/jcs.ts";
 import { DeliveryProofError } from "./fastdata.ts";
 import type { Chain } from "./tools.ts";
@@ -37,6 +38,10 @@ export interface CheckRunDeps {
    * by objective and criterion: the evaluator's memory for the retry rule.
    */
   unreachableSince?: Map<string, number>;
+  /** Distinct evidence bytes each objective has asked the archive to keep, so one objective cannot fill it for all. */
+  archiveUsage?: ObjectiveUsage;
+  /** The most one objective may add to the archive; defaults to `OBJECTIVE_ARCHIVE_BYTES`. */
+  archiveObjectiveBytes?: number;
   clock?: () => number;
 }
 
@@ -80,6 +85,20 @@ const overLimit = (spec: Spec, reports: { contributor: string; text: string }[])
 
 /** A reason to stop that the caller reads as is. */
 class Refusal extends Error {}
+
+/** The archive an evaluation of `objective` writes to: the shared one, within the objective's share when usage is tracked. */
+function objectiveArchive(deps: CheckRunDeps, objective: string): CheckDeps["archive"] {
+  const archive = deps.checks.archive;
+  if (!archive || !deps.archiveUsage) return archive;
+  const budgeted = withObjectiveBudget(archive, deps.archiveUsage, objective, deps.archiveObjectiveBytes);
+  return async (bytes) => {
+    try {
+      await budgeted(bytes);
+    } catch (e) {
+      throw e instanceof ArchiveBudgetError ? new Refusal(e.message) : e;
+    }
+  };
+}
 
 /** Every criterion as a tool call, then each result as it finishes; returns the results. */
 async function* streamChecks(
@@ -197,13 +216,14 @@ export function runEvaluation(input: RunAgentInput, deps: CheckRunDeps): AsyncGe
     }
     // every slot without a judged report: not delivered on chain, or delivered with no valid published report
     const missing = holders(params, state?.taken).filter((h) => !delivered.some((d) => d.contributor === h));
-    const archive = deps.checks.archive;
+    const archive = objectiveArchive(deps, objective);
+    const checks = { ...deps.checks, archive };
     if (archive) {
       await abortable(deps.signal, () => archive(new TextEncoder().encode(canonicalize(spec))));
       for (const report of delivered) await abortable(deps.signal, () => archive(new TextEncoder().encode(report.text)));
     }
     // with nothing to judge, no model is asked; the missing reports already fail the objective
-    const checkDeps = delivered.length ? deps : { ...deps, checks: { ...deps.checks, judge: undefined } };
+    const checkDeps = { ...deps, checks: delivered.length ? checks : { ...checks, judge: undefined } };
     const results = yield* streamChecks(
       spec,
       { text: judgedText(delivered), oversized: overLimit(spec, delivered) },
