@@ -1,0 +1,114 @@
+{
+  "v": 1,
+  "objective": "meetup-nyc.objectives.testnet",
+  "verdict": "failed",
+  "spec_hash": "a72a06c34616838726ef50b78b26bfc8a31a9a427b30b489cf78403cddb1edc5",
+  "deliverables": [
+    {
+      "contributor": "organizer.testnet",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "contributor": "venue.testnet",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ],
+  "results": [
+    {
+      "criterion_id": "page",
+      "outcome": "pass",
+      "detail": "Event page: https://lu.ma/example loads and shows \"New York\"",
+      "evidence": [
+        {
+          "url": "https://lu.ma/example",
+          "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+        }
+      ]
+    },
+    {
+      "criterion_id": "attendees",
+      "outcome": "fail",
+      "detail": "Attendees: 24 is below 30",
+      "evidence": []
+    },
+    {
+      "criterion_id": "rating",
+      "outcome": "pass",
+      "detail": "Average rating: 87",
+      "evidence": []
+    },
+    {
+      "criterion_id": "sources",
+      "outcome": "pass",
+      "detail": "2 of 2 cited links load; 24 and 87 appear on them",
+      "evidence": [
+        {
+          "url": "https://lu.ma/example",
+          "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+        },
+        {
+          "url": "https://example.org/registrations.csv",
+          "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+        }
+      ]
+    },
+    {
+      "criterion_id": "photos",
+      "outcome": "pass",
+      "detail": "3 images load",
+      "evidence": [
+        {
+          "url": "https://example.org/1.jpg",
+          "sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+        },
+        {
+          "url": "https://example.org/2.jpg",
+          "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+        },
+        {
+          "url": "https://example.org/3.jpg",
+          "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+        }
+      ]
+    },
+    {
+      "criterion_id": "summary",
+      "outcome": "pass",
+      "detail": "found \"## Agenda\"",
+      "evidence": []
+    },
+    {
+      "criterion_id": "files",
+      "outcome": "pass",
+      "detail": "writeup.md, data/attendance.csv",
+      "evidence": []
+    },
+    {
+      "criterion_id": "attendance-json",
+      "outcome": "pass",
+      "detail": "{\"count\": 24} is valid",
+      "evidence": []
+    },
+    {
+      "criterion_id": "useful",
+      "outcome": "skipped",
+      "detail": "not judged: a machine check already failed",
+      "evidence": []
+    }
+  ],
+  "llm_calls": [
+    {
+      "criterion_id": "useful",
+      "model": "example/model",
+      "answer": false,
+      "request_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "response_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "signature": {
+        "algo": "ecdsa",
+        "address": "0x0000000000000000000000000000000000000000",
+        "value": "0x00"
+      }
+    }
+  ],
+  "missing": []
+}
