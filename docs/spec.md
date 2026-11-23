@@ -1,6 +1,6 @@
 # NEAR Extents: specification (draft for review)
 
-Status: draft for review.
+Status: draft for review. Written for MultiAgency/product-board#23, part of MultiAgency/product-board#21.
 Sources: `README.md`, `docs/design-notes.md`, `docs/documents.md`, `docs/citynode.md`, `crates/spec`.
 Where this draft and the code disagree, the code and the pinned vectors win; please flag it.
 
@@ -106,7 +106,35 @@ Set by `Params.acceptance_window_secs`, visible before anyone commits:
 
 A `failed` verdict is final. There is no dispute path.
 
-## 4. Documents and evidence
+## 4. Risk spread over time: milestones
+
+Splitting work into milestones, each its own objective, spreads the risk and gets money to the
+people doing the work sooner.
+
+- Each milestone is a separate objective with its own contract, spec, deadline, funding and
+  evaluator verdict. A failed or expired milestone refunds only its own funding.
+- Contributors are paid when their milestone is attested, not at the end of the whole job.
+- The sponsor can fund milestone N+1 after milestone N resolves, limiting exposure to one
+  milestone.
+- Nothing in the contract links one milestone to another. Ordering, sequencing and
+  "fund the next only if the last achieved" are decisions made by the sponsor or agency,
+  not enforced on chain.
+
+## 5. Composition: agencies and sub-objectives
+
+The sponsor names one agency. The agency breaks the work into **sub-objectives**; each one
+requires its contributors to commit, and is set to end before its parent's deadline.
+
+- A sub-objective is an ordinary objective. Its sponsor is the agency (typically a Sputnik
+  DAO), and its contributors are the people or sub-agencies doing the work.
+- **The ordering rule is set by agencies, not enforced.** The contract does not check, across
+  objectives, that a child's deadline precedes its parent's, nor that a parent's contributors
+  correspond to the children. Agencies must set deadlines accordingly, and reviewers of a
+  parent objective should check the children.
+- Subcontracting is therefore a convention built on ordinary funding and attestation, with
+  no cross-objective call in the contract.
+
+## 6. Documents and evidence
 
 | Document | Commitment | Publisher |
 | --- | --- | --- |
@@ -118,7 +146,7 @@ A `failed` verdict is final. There is no dispute path.
 The app publishes these as public plaintext via FastData under the objective account and
 verifies them against the on-chain commitments. The contract stores commitments, not documents.
 
-## 5. Guarantees and non-guarantees
+## 7. Guarantees and non-guarantees
 
 The contract guarantees: role checks, timing, share arithmetic (remainder to the sponsor),
 one verdict, an achieved verdict only after every slot delivered, exact payouts, retry of
@@ -130,7 +158,7 @@ independence from the Verifier's privileged roles (`DAO`, `UnrestrictedWithdrawe
 no independent audit; use testnet funds only. See the README for known limits (lost payout
 callback, plain transfers, gas ceiling, blocked deletion).
 
-## 6. Evidence to date
+## 8. Evidence to date
 
 Testnet (Tidepool's Verifier, same v0.4.5 build as mainnet `intents.near`, 2026-11-20):
 ten scenarios, 170 of 170 checks, on global code
@@ -139,7 +167,7 @@ binary and mainnet agency-DAO code covers the same scenarios plus failed-payout 
 Release, cancel and withdrawal are not in the published build; they are covered by unit
 tests and the sandbox only.
 
-## 7. Out of scope for now
+## 9. Out of scope for now
 
 - **Scoped spending authority** (policies, grants, caps, freeze). The Intents team points to
   wallet contracts and extensions for this; the platform (api.multiagency.ai) is where
@@ -154,9 +182,13 @@ tests and the sandbox only.
 - **Reputation.** No score or index; external readers can derive records from events.
 - **Privacy, encrypted reports, attested evaluator** (provider signatures are verified, TEE
   execution is not), and a **global objective search**.
+- **Cross-objective enforcement** of milestones and sub-objective deadlines (see sections 4
+  and 5).
 
-## 8. Questions for reviewers
+## 10. Questions for reviewers
 
 1. Is a single evaluator DAO acceptable for the first agencies, given no dispute path?
-2. Is the `acceptance_window_secs` default of fail-closed right for contributors?
-3. Which criteria do City Nodes need before `attendance` is worth building?
+2. Should cross-objective deadline checks (child before parent) move on chain, or stay an
+   agency convention?
+3. Is the `acceptance_window_secs` default of fail-closed right for contributors?
+4. Which criteria do City Nodes need before `attendance` is worth building?
