@@ -25,6 +25,8 @@ hex.workspace = true
 tokio = { version = "1", features = ["time"] }
 
 [dev-dependencies]
+# derives an escrow's account from its params, for `tests/escrow.rs`
+defuse-escrow-swap.workspace = true
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [lints]

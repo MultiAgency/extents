@@ -26,7 +26,7 @@ use extents_objective::{
 };
 use near_kit::{
     AccountId, Gas, Near, NearToken,
-    protocol::PublishMode,
+    protocol::{PublishMode, StateInit},
     rpc::{BlockReference, FinalExecutionOutcome, Finality},
     signer::{InMemorySigner, SecretKey},
     transaction::{Final, TransactionBuilder},
@@ -99,6 +99,17 @@ pub const FUNGIBLE_TOKEN: Pinned = Pinned {
     sha256: "12c5f9bd9136b4396823478281a61368b4c74cdaf35ab5743b302c3aac55a354",
     sources: &[Source::Url(
         "https://raw.githubusercontent.com/near/intents/dbad9c8a4659e8bd7f42c152ec79448a8e9d281c/releases/fungible-token.wasm",
+    )],
+};
+
+/// The NEP-171 example contract the Intents repository tests with, as
+/// released at the commit the `defuse-*` dependencies pin. Only its owner
+/// mints.
+pub const NON_FUNGIBLE_TOKEN: Pinned = Pinned {
+    name: "non-fungible-token",
+    sha256: "38cfeef995845b9846ea323f94d44745dd9480857919bff1e41e72335354abbc",
+    sources: &[Source::Url(
+        "https://raw.githubusercontent.com/near/intents/dbad9c8a4659e8bd7f42c152ec79448a8e9d281c/releases/non-fungible-token.wasm",
     )],
 };
 
@@ -292,16 +303,7 @@ impl Env {
         .await
         .and_then(|o| expect_ok("deposit token to Verifier", o.inner))?;
 
-        let code = objective_wasm()?;
-        let code_hash: [u8; 32] = Sha256::digest(&code).into();
-        // The evidence names the exact build each test ran.
-        println!("objective wasm sha256 {}", hex::encode(code_hash));
-        expect_ok(
-            "publish objective",
-            root.publish(code, PublishMode::Immutable)
-                .wait_until::<Final>()
-                .await?,
-        )?;
+        let code_hash = publish(&root, "objective", objective_wasm()?).await?;
 
         Ok(Self {
             sandbox,
@@ -366,14 +368,44 @@ impl Env {
         params: &Params,
         deposit: NearToken,
     ) -> Result<(Objective, Outcome)> {
-        let objective = Objective::new(params.clone(), self.code_hash)?;
-        let tx = self
-            .sponsor
-            .near
-            .state_init(objective.state_init(), deposit);
-        let outcome = send(&self.sponsor, tx).await?;
-        ensure!(outcome.ok(), "deploy objective: {}", outcome.error());
+        let objective = self.objective(params)?;
+        let outcome = self.launch(&self.sponsor, &objective, deposit).await?;
         Ok((objective, outcome))
+    }
+
+    /// The objective `params` derive, whether or not it is deployed.
+    pub fn objective(&self, params: &Params) -> Result<Objective> {
+        Objective::new(params.clone(), self.code_hash)
+    }
+
+    /// Deploys `objective` as `actor`, attaching `deposit` to its
+    /// `StateInit`. Launching needs no role.
+    pub async fn launch(
+        &self,
+        actor: &Actor,
+        objective: &Objective,
+        deposit: NearToken,
+    ) -> Result<Outcome> {
+        self.state_init(actor, objective.state_init(), deposit)
+            .await
+    }
+
+    /// Creates the account `state_init` derives, as `actor`.
+    pub async fn state_init(
+        &self,
+        actor: &Actor,
+        state_init: StateInit,
+        deposit: NearToken,
+    ) -> Result<Outcome> {
+        let outcome = send(actor, actor.near.state_init(state_init, deposit)).await?;
+        ensure!(outcome.ok(), "state init: {}", outcome.error());
+        Ok(outcome)
+    }
+
+    /// Publishes `code` as an immutable global contract, and returns the
+    /// hash it is deployed by.
+    pub async fn publish(&self, name: &str, code: Vec<u8>) -> Result<[u8; 32]> {
+        publish(&self.root, name, code).await
     }
 
     /// Sends `amount` of NEAR from `from` to `to`.
@@ -533,18 +565,30 @@ impl Env {
         Ok(outcome)
     }
 
+    /// `account`'s balance of the test token on the Verifier.
     pub async fn mt_balance(&self, account: &AccountId) -> Result<u128> {
+        self.mt_balance_of(account, &self.token).await
+    }
+
+    /// `account`'s balance on the Verifier of `token`, a Verifier token id.
+    pub async fn mt_balance_of(&self, account: &AccountId, token: &str) -> Result<u128> {
         let balance: String = self
             .root
             .view(self.verifier.clone(), "mt_balance_of")
-            .args(json!({ "account_id": account, "token_id": self.token }))
+            .args(json!({ "account_id": account, "token_id": token }))
             .await?;
         Ok(balance.parse()?)
     }
 
     /// The objective's `ob_view`.
     pub async fn state(&self, objective: &AccountId) -> Result<Value> {
-        Ok(self.root.view(objective.clone(), "ob_view").await?)
+        self.view(objective, "ob_view").await
+    }
+
+    /// The result of `account`'s view method `method`, called with no
+    /// arguments.
+    pub async fn view(&self, account: &AccountId, method: &str) -> Result<Value> {
+        Ok(self.root.view(account.clone(), method).await?)
     }
 
     pub async fn exists(&self, account: &AccountId) -> Result<bool> {
@@ -630,6 +674,61 @@ impl Env {
         Ok(dao.id)
     }
 
+    /// An NFT contract ([`NON_FUNGIBLE_TOKEN`]) that only `owner` mints from.
+    pub async fn new_nft(&self, name: &str, owner: &AccountId) -> Result<AccountId> {
+        let nft = create_account(
+            &self.root,
+            format!("{name}.{}", self.sandbox.root_account_id()).parse()?,
+            NearToken::from_near(5),
+        )
+        .await?;
+        expect_ok(
+            &format!("deploy NFT {}", nft.id),
+            nft.near
+                .transaction(nft.id.clone())
+                .deploy(NON_FUNGIBLE_TOKEN.code().await?)
+                .call("new_default_meta")
+                .args(json!({ "owner_id": owner }))
+                .gas(CALL_GAS)
+                .send()
+                .wait_until::<Final>()
+                .await?,
+        )?;
+        Ok(nft.id)
+    }
+
+    /// As `owner` of the NFT contract `nft`, mints `token_id` and deposits
+    /// it into the Verifier for `to`, as the token [`nep171`] names.
+    pub async fn deposit_nft(
+        &self,
+        owner: &Actor,
+        nft: &AccountId,
+        token_id: &str,
+        to: &AccountId,
+    ) -> Result<()> {
+        call(
+            owner,
+            nft,
+            "nft_mint",
+            json!({ "token_id": token_id, "token_owner_id": owner.id, "token_metadata": {} }),
+            CALL_GAS,
+            NearToken::from_millinear(100),
+        )
+        .await
+        .and_then(|o| expect_ok("mint NFT", o.inner))?;
+        // A `msg` naming an account credits it on the Verifier.
+        call(
+            owner,
+            nft,
+            "nft_transfer_call",
+            json!({ "receiver_id": self.verifier, "token_id": token_id, "msg": to }),
+            CALL_GAS,
+            ONE_YOCTO,
+        )
+        .await
+        .and_then(|o| expect_ok("deposit NFT to Verifier", o.inner))
+    }
+
     /// Has `dao` make one function call, as an agency does: `council[0]`
     /// files a `FunctionCall` proposal and every member approves it. Returns
     /// the executing transaction, the last vote's.
@@ -660,6 +759,24 @@ impl Env {
         }
         executing.context("empty council")
     }
+}
+
+/// The Verifier's token id for `token_id` of the NFT contract `nft`.
+pub fn nep171(nft: &AccountId, token_id: &str) -> String {
+    format!("nep171:{nft}:{token_id}")
+}
+
+async fn publish(root: &Near, name: &str, code: Vec<u8>) -> Result<[u8; 32]> {
+    let code_hash: [u8; 32] = Sha256::digest(&code).into();
+    // The evidence names the exact build each test ran.
+    println!("{name} wasm sha256 {}", hex::encode(code_hash));
+    expect_ok(
+        &format!("publish {name}"),
+        root.publish(code, PublishMode::Immutable)
+            .wait_until::<Final>()
+            .await?,
+    )?;
+    Ok(code_hash)
 }
 
 async fn create_account(root: &Near, id: AccountId, balance: NearToken) -> Result<Actor> {
@@ -793,13 +910,33 @@ impl Source {
 /// The objective's wasm: `EXTENTS_OBJECTIVE_WASM` if set, e.g. the exact
 /// artifact to publish, or else the local build's output.
 fn objective_wasm() -> Result<Vec<u8>> {
-    let path = std::env::var_os("EXTENTS_OBJECTIVE_WASM").map_or_else(
-        || workspace().join("target/near/extents_objective/extents_objective.wasm"),
-        PathBuf::from,
-    );
+    local_wasm(
+        "EXTENTS_OBJECTIVE_WASM",
+        "target/near/extents_objective/extents_objective.wasm",
+        "contracts/objective",
+    )
+}
+
+/// The Intents repository's `escrow-swap` contract.
+///
+/// It has no published build: this reads `EXTENTS_ESCROW_SWAP_WASM` if set,
+/// or else `target/sandbox/defuse_escrow_swap.wasm`, built from the commit
+/// the `defuse-*` dependencies pin.
+pub fn escrow_swap_wasm() -> Result<Vec<u8>> {
+    local_wasm(
+        "EXTENTS_ESCROW_SWAP_WASM",
+        "target/sandbox/defuse_escrow_swap.wasm",
+        "contracts/escrow-swap of near/intents",
+    )
+}
+
+/// The wasm at the path in the variable `var` if set, or else at `default`
+/// in the workspace: a build of the crate at `source`.
+fn local_wasm(var: &str, default: &str, source: &str) -> Result<Vec<u8>> {
+    let path = std::env::var_os(var).map_or_else(|| workspace().join(default), PathBuf::from);
     fs::read(&path).with_context(|| {
         format!(
-            "reading {}; build it first: (cd contracts/objective && cargo near build \
+            "reading {}; build it first: (cd {source} && cargo near build \
              non-reproducible-wasm --locked --features=contract --abi-features=abi,contract)",
             path.display()
         )

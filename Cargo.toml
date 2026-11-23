@@ -17,6 +17,7 @@ extents-spec.path = "crates/spec"
 # NEAR Intents is consumed as-is, pinned to one commit; nothing in it is modified.
 defuse-auth-call = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c" }
 defuse-borsh-utils = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c" }
+defuse-escrow-swap = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c" }
 defuse-fees = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c" }
 defuse-nep245 = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c" }
 defuse-time = { git = "https://github.com/near/intents", rev = "dbad9c8a4659e8bd7f42c152ec79448a8e9d281c", default-features = false }

@@ -30,6 +30,8 @@ failure is simulated.
     `BtA1BEFNS619KkvXFsgcpQ21Tb5yMm32aaUkn7xNothk` at both;
   - the Sputnik DAO, from mainnet `agentic.sputnik-dao.near`:
     `bf6f951e…d7f6`;
+  - the NEP-171 contract of `tests/proof.rs`, `releases/non-fungible-token.wasm`
+    of `near/intents` at `dbad9c8`, from GitHub: `38cfeef9…abbc`;
   - the NEP-141 test token, `releases/fungible-token.wasm` of `near/intents`
     at `dbad9c8`, from GitHub: `12c5f9bd…a354`.
 
@@ -133,6 +135,53 @@ the evaluator:
 | `a_commitment_locks_the_funding_until_it_is_withdrawn` | Withdrawing without a commitment is refused. A commitment blocks cancelling; once it is withdrawn (a `withdrawn` event), the sponsor can cancel. |
 | `a_withdrawn_slot_passes_between_contributor_and_backup` | The listed contributor commits, withdraws and commits again. After `commit_by` the backup takes the empty slot; the contributor can then neither take it back nor withdraw it. Delivered work cannot be withdrawn, and the holder at the verdict is paid the slot's share. |
 | `withdraw_and_cancel_by_signed_intent` | Commitment, withdrawal and cancellation by signed `auth_call` intents. |
+
+`tests/matching.rs` covers matching as NEAR Intents does it: a solver's quote
+is its signed commitment, the sponsor answers with signed funding, and a
+relayer sends both in one `execute_intents`. The app has no such flow.
+
+| Test | Shows |
+| --- | --- |
+| `a_quote_and_its_funding_settle_in_one_transaction` | Both intents are signed for an address nobody has launched. A third party launches it, and one transaction funds and commits, in either order of the pair. |
+| `the_verifier_accepts_the_pair_or_neither` | Funding the sponsor cannot cover fails the transaction, and the quote does not land; the same quote then matches funding the sponsor can cover. A quote signed with a key the Verifier does not know fails it too, and no funding moves. |
+| `each_half_lands_without_the_other` | Nothing ties the two intents together. A quote relayed alone commits its solver to an unfunded objective, and the solver withdraws. Funding lands beside a commitment from an account the terms do not name, whose `on_auth` fails, and the sponsor cancels. |
+| `a_pair_relayed_before_the_launch_is_spent` | The Verifier's intents cannot carry the launch. Relayed to an address with no account, the pair moves nothing, and relaying it again after the launch is refused: both signatures are spent. |
+
+`tests/proof.rs` covers a fact as a token, settled as a swap on the Verifier
+alone. An attester owns an NFT contract (the NEP-171 example of `near/intents`
+at `dbad9c8`: `38cfeef9…abbc`) and deposits a token for the fact into the
+Verifier, where it is the balance `nep171:<contract>:<fact>`. No objective
+takes part, and neither the contract nor the app has such a flow.
+
+| Test | Shows |
+| --- | --- |
+| `a_proof_swaps_for_the_payment_in_one_transaction` | The sponsor signs a `token_diff` paying for the proof before it exists. Once the attester mints it to the solver, the solver's opposite `token_diff` and the sponsor's settle in one transaction: the solver is paid and the sponsor holds the proof. |
+| `neither_half_of_a_swap_lands_alone` | Either `token_diff` alone fails with `invariant violated` and stays unspent; the same two then settle together. |
+| `only_the_named_issuers_proof_fills_the_offer` | A solver without the proof fails with `insufficient balance`. The same fact minted from the solver's own contract is a different token and fails with `invariant violated`. |
+| `a_signed_offer_locks_nothing` | The sponsor moves its balance away after the solver holds the proof, and the swap fails with `insufficient balance`. |
+| `the_deployed_verifier_has_no_mint_intent` | The `imt_mint` intent in the Verifier's source is refused by the deployed build as an unknown variant, which is why the proof is an NFT. |
+
+`tests/escrow.rs` covers the same proof paid from an escrow: the
+[`escrow-swap`](https://github.com/near/intents/tree/dbad9c8a4659e8bd7f42c152ec79448a8e9d281c/contracts/escrow-swap)
+contract of `near/intents`, which locks the sponsor's payment at an address its
+params derive and pays whoever sends it the token it names. No objective takes
+part, and neither the contract nor the app has such a flow. The escrow has no
+published build, so the tests read `EXTENTS_ESCROW_SWAP_WASM`, or else
+`target/sandbox/defuse_escrow_swap.wasm`, and print the sha256 they ran. Build
+it from the commit the `defuse-*` dependencies pin:
+
+```sh
+git clone https://github.com/near/intents && cd intents
+git checkout dbad9c8a4659e8bd7f42c152ec79448a8e9d281c
+(cd contracts/escrow-swap && cargo near build non-reproducible-wasm --locked \
+  --features=contract --abi-features=abi,contract)
+# target/near/defuse_escrow_swap/defuse_escrow_swap.wasm
+```
+
+| Test | Shows |
+| --- | --- |
+| `a_proof_fills_an_escrow_that_holds_the_payment` | The sponsor funds the escrow before the proof exists, and its `es_close` is `unauthorized`: the payment stays. Once the attester mints the proof to the solver, the solver's `mt_transfer_call` of it to the escrow pays the solver and hands the sponsor the proof, with every receipt succeeding and nothing left in the escrow. |
+| `without_the_named_proof_the_payment_returns_at_the_deadline` | The same fact minted from the solver's own contract is refused as `wrong token` and returned. After the deadline a third party closes the escrow, and the whole payment returns to the sponsor. |
 
 `tests/fastdata.rs` covers publishing to an objective's own account, which
 FastData indexes from calls to `__fastdata_kv`:
