@@ -13,6 +13,22 @@ use near_sdk::{FunctionError, PanicOnDefault, PromiseOrValue, env, near};
 
 use crate::{Attestation, ContractStorage, Delivery, Error, Objective, Params, Result, Storage};
 
+/// `FastData`'s write method, as a no-op: documents are published to the
+/// objective's own account by calling `__fastdata_kv` on it, and `FastData`
+/// indexes the call's arguments from the transaction. Accepting the call is
+/// all the objective does, so the receipt succeeds instead of failing with
+/// `MethodNotFound` (`FastData` indexes successful calls too). It never reads
+/// its input or the objective's state. Like every other method it refuses an
+/// attached deposit, which would otherwise stay on the objective and go to
+/// whoever closes it.
+#[cfg(target_arch = "wasm32")]
+#[unsafe(no_mangle)]
+pub extern "C" fn __fastdata_kv() {
+    if !env::attached_deposit().is_zero() {
+        env::panic_str("__fastdata_kv takes no deposit");
+    }
+}
+
 #[near(contract_state(key = ContractStorage::STATE_KEY))]
 #[autoimpl(Deref using self.0)]
 #[derive(Debug, PanicOnDefault)]
