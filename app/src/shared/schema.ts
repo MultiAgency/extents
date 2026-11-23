@@ -39,12 +39,27 @@ function depth(value: unknown): number {
   return deepest;
 }
 
+/** Whether any object inside a JSON value has this key. */
+function hasKey(value: unknown, key: string): boolean {
+  const stack = [value];
+  while (stack.length) {
+    const v = stack.pop();
+    if (v === null || typeof v !== "object") continue;
+    if (!Array.isArray(v) && key in v) return true;
+    stack.push(...Object.values(v));
+  }
+  return false;
+}
+
 /** Why this app won't compile a schema, judged without compiling it. */
 export function schemaLimitProblem(schema: unknown): string | undefined {
   if (typeof schema !== "object" || schema === null || Array.isArray(schema)) return "json_schema is not an object";
   if (new TextEncoder().encode(JSON.stringify(schema)).byteLength > MAX_SCHEMA_BYTES)
     return `json_schema is larger than ${MAX_SCHEMA_BYTES / 1024} KiB`;
   if (depth(schema) > MAX_SCHEMA_DEPTH) return `json_schema nests deeper than ${MAX_SCHEMA_DEPTH}`;
+  // Ajv resolves a $dynamicRef only when a value reaches it: one that resolves to nothing compiles and then fails
+  // every value, where crates/spec refuses the schema. This app does not evaluate them.
+  if (hasKey(schema, "$dynamicRef")) return "json_schema uses $dynamicRef, which this app does not evaluate";
   return undefined;
 }
 

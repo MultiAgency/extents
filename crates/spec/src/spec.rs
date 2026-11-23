@@ -172,6 +172,12 @@ impl Criterion {
     }
 }
 
+/// The two spellings of the one dialect a `schema` criterion may name. Mirrored in `app/src/shared/spec.ts`.
+const SCHEMA_DIALECT: [&str; 2] = [
+    "https://json-schema.org/draft/2020-12/schema",
+    "https://json-schema.org/draft/2020-12/schema#",
+];
+
 impl Check {
     fn validate(&self) -> Result<(), String> {
         fn text(field: &str, value: &str) -> Result<(), String> {
@@ -187,6 +193,13 @@ impl Check {
             Self::Schema { json_schema } => {
                 if !json_schema.is_object() {
                     return Err("json_schema is not an object".into());
+                }
+                // Compiled as draft 2020-12 whatever it names, so a schema that names another
+                // dialect is refused, not judged under rules it was not written for.
+                if json_schema.get("$schema").is_some_and(|named| {
+                    !named.as_str().is_some_and(|d| SCHEMA_DIALECT.contains(&d))
+                }) {
+                    return Err("json_schema names a dialect other than draft 2020-12".into());
                 }
                 jsonschema::draft202012::new(json_schema)
                     .map(drop)

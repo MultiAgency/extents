@@ -140,6 +140,30 @@ describe.skipIf(!resultsDir)("documents attested on testnet", () => {
   });
 });
 
+describe("a schema names no dialect but draft 2020-12, as in crates/spec", () => {
+  const withDialect = (dialect: unknown) => () => {
+    const doc = structuredClone(vectors("spec.json")) as any;
+    doc.criteria.find((c: any) => c.check.kind === "schema").check.json_schema.$schema = dialect;
+    return parseSpec(doc);
+  };
+  test.each(["https://json-schema.org/draft/2020-12/schema", "https://json-schema.org/draft/2020-12/schema#"])("%s is accepted", (named) => {
+    expect(withDialect(named)).not.toThrow();
+  });
+  test.each([
+    "http://json-schema.org/draft/2020-12/schema",
+    "https://json-schema.org/draft/2020-12/schema##",
+    "https://json-schema.org/draft/2019-09/schema",
+    "http://json-schema.org/draft-07/schema#",
+    "https://example.org/my-dialect",
+    "HTTPS://JSON-SCHEMA.ORG/draft/2020-12/schema",
+    "",
+    5,
+    null,
+  ])("%j is refused", (other) => {
+    expect(withDialect(other)).toThrow(/attendance-json/);
+  });
+});
+
 describe("blank text means Unicode White_Space, as in crates/spec", () => {
   const withText = (patch: (doc: any) => void) => {
     const doc = structuredClone(vectors("spec.json")) as any;
