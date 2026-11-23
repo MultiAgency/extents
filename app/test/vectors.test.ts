@@ -143,6 +143,7 @@ describe.skipIf(!resultsDir)("documents attested on testnet", () => {
   });
 });
 
+// docs/spec.md, "A schema is draft 2020-12"
 describe("a schema names no dialect but draft 2020-12, as in crates/spec", () => {
   const withDialect = (dialect: unknown) => () => {
     const doc = structuredClone(vectors("spec.json")) as any;

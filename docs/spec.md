@@ -269,6 +269,11 @@ A spec with an `llm_judge` states `max_report_bytes`. A longer report fails the 
 without any model being asked, so that `fail` carries no model calls; a judged `pass` always needs
 every model's call.
 
+#### A schema is draft 2020-12
+
+A `schema` criterion's `json_schema` is JSON Schema draft 2020-12. It may name that dialect in
+`$schema`, with or without the trailing `#`, and is refused if it names any other.
+
 #### One meaning has one hash
 
 Specs and reviews are accepted only in normal form: no unknown fields, and no `null` for an omitted
@@ -301,8 +306,8 @@ ten scenarios, 170 of 170 checks, on global code
 binary and mainnet agency-DAO code covers the same scenarios plus failed-payout retry.
 That build has no release, cancel or withdrawal. Code
 `FPkPcDq1zMgkWXtdH98F1uR292PTMSF6mSjDiUXnVXyB` (commit `541a4e8`, published 2026-11-23) adds
-them and the no-op `__fastdata_kv`; it passed the 31 sandbox tests on its exact artifact, and its
-testnet scenarios have not run yet.
+them and the no-op `__fastdata_kv`; it passed the 31 sandbox tests on its exact artifact, then all
+thirteen testnet scenarios (the ten above, plus release, cancel and withdrawal), 207 of 207 checks.
 
 ## 9. Out of scope for now
 

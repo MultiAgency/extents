@@ -334,8 +334,15 @@ so re-run [`e2e/`](e2e/README.md) to reproduce them.
 later build, published on 2026-11-23 as global code
 `FPkPcDq1zMgkWXtdH98F1uR292PTMSF6mSjDiUXnVXyB` (SHA-256 `d5d774ac…`), the
 reproducible build of commit `541a4e8`, which passed the 31 sandbox tests on
-that exact file first. Its testnet scenarios had not finished when this was
-written.
+that exact file first. On it, all thirteen scenarios pass, 207 of 207 checks
+(2026-11-23): the ten above, and `release`, `cancel` and `withdraw`. The
+sponsor's release is refused until both contributors deliver, then resolves as
+`released` and pays the split. A commitment blocks the sponsor's cancel until
+it is withdrawn, and the cancel then refunds everything as `cancelled`. A
+contributor withdraws before `commit_by`, its backup takes the empty slot
+after it, and the verdict pays the backup that slot's share. Publishing cost
+33.18 NEAR (331,773 bytes), and the results are in
+`e2e/results/d5d774ac…/RESULTS.md`.
 
 - **Deployment.** Publishing by code hash cost 32.48 NEAR (10× storage for
   324,728 bytes). `StateInit` deploys at the account id derived from

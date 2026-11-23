@@ -395,6 +395,7 @@ fn blank_text_is_unicode_white_space() {
 
 /// A `schema` criterion is JSON Schema draft 2020-12. A schema may say so, in either spelling of that dialect's
 /// identifier; one that names any other dialect is refused, not compiled under rules it was not written for.
+// docs/spec.md, "A schema is draft 2020-12"
 #[test]
 fn a_schema_names_no_dialect_but_2020_12() {
     let with_dialect = |dialect: Value| {
