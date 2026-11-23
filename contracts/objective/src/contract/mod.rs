@@ -3,6 +3,8 @@
 mod auth_call;
 mod cleanup;
 mod commit;
+#[cfg(test)]
+mod model;
 mod settle;
 #[cfg(test)]
 mod tests;

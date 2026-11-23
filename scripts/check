@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Every check this repository has, cheapest first, one line each, then `next:` with what to fix first.
 #
-#   scripts/check            the checks CI runs
-#   scripts/check --sandbox  also the Docker sandbox tests, on EXTENTS_OBJECTIVE_WASM if set
+#   scripts/check                 the checks CI runs, but the replay
+#   scripts/check --model-replay  also the contract replaying the formal model's runs
+#   scripts/check --sandbox       also the Docker sandbox tests, on EXTENTS_OBJECTIVE_WASM if set
 #
 # A stage's full output is kept in a log, named on its line when it fails, and removed when all pass.
 # The app's unit and browser tests are skipped when it does not typecheck: their failures would only
@@ -12,12 +13,20 @@ set -uo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 logs="$(mktemp -d "${TMPDIR:-/tmp}/extents-check.XXXXXX")"
 sandbox=false
+replay=false
 for arg in "$@"; do
   case "$arg" in
     --sandbox) sandbox=true ;;
-    *) echo "usage: scripts/check [--sandbox]" >&2; exit 2 ;;
+    --model-replay) replay=true ;;
+    *) echo "usage: scripts/check [--model-replay] [--sandbox]" >&2; exit 2 ;;
   esac
 done
+
+# the pinned Quint, as `quint` on PATH for the replay
+quint=(npx -y @informalsystems/quint@0.34.0)
+mkdir -p "$logs/bin"
+printf '#!/bin/sh\nexec npx -y @informalsystems/quint@0.34.0 "$@"\n' >"$logs/bin/quint"
+chmod +x "$logs/bin/quint"
 
 first_failure=""
 failed() { [[ -n "$first_failure" ]]; }
@@ -42,6 +51,16 @@ stage fmt . cargo fmt --all -- --check
 stage clippy . cargo clippy --workspace --all-targets -- -D warnings
 stage clippy-wasm . cargo clippy -p extents-objective --target wasm32-unknown-unknown --features=contract -- -D warnings
 stage rust-tests . cargo test --workspace
+stage model contracts/objective/model "${quint[@]}" run objective.qnt \
+  --invariant invariants --max-samples 20000 --max-steps 80 --seed 1
+if $replay; then
+  # `--cfg near` gives the contract the mocked block time, which the driver moves; its own target
+  # directory keeps the ordinary build's cache
+  stage model-replay contracts/objective env PATH="$logs/bin:$PATH" RUSTFLAGS="--cfg near" \
+    CARGO_TARGET_DIR="$root/target/model" cargo test -p extents-objective --lib contract_follows_the_model -- --ignored
+else
+  skip model-replay "slow: scripts/check --model-replay"
+fi
 if stage typecheck app pnpm typecheck; then
   stage unit app pnpm test
   stage browser app pnpm test:e2e
@@ -61,6 +80,8 @@ case "$first_failure" in
   fmt) echo "next: run cargo fmt --all" ;;
   clippy | clippy-wasm) echo "next: fix the clippy findings in the log; never silence one without a reason" ;;
   rust-tests) echo "next: fix the failing Rust test in the log; a failing vector means a format changed (AGENTS.md)" ;;
+  model) echo "next: the log ends in the state an invariant rejects; fix the contract's rule or the model, never the seed" ;;
+  model-replay) echo "next: the contract and the model disagree; rerun with the log's QUINT_SEED and QUINT_VERBOSE=1 to see the step" ;;
   typecheck) echo "next: fix the type errors in the log" ;;
   unit | browser) echo "next: fix the failing app test in the log" ;;
   sandbox) echo "next: read the sandbox log; an RPC error with no failed assertion is host load, so rerun before debugging" ;;

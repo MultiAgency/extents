@@ -96,7 +96,7 @@ export function sources(root = ROOT): string[] {
     } catch {
       return [];
     }
-    if (stat.isFile()) return /\.(rs|ts|tsx|md|txt)$/.test(path) ? [path] : [];
+    if (stat.isFile()) return /\.(rs|ts|tsx|md|txt|qnt)$/.test(path) ? [path] : [];
     return readdirSync(full)
       .filter((name) => !SKIP.has(name))
       .flatMap((name) => walk(relative(root, join(full, name))));
@@ -104,8 +104,8 @@ export function sources(root = ROOT): string[] {
   return SCANNED.flatMap(walk);
 }
 
-/** Whether a file holds tests: a test that cites a rule is evidence for it. */
-export const isTest = (file: string) => /(^|\/)tests?\/|(^|\/)tests\.rs$|\.(test|spec)\.tsx?$/.test(file);
+/** Whether a file holds tests: a test, or a model invariant CI checks, that cites a rule is evidence for it. */
+export const isTest = (file: string) => /(^|\/)tests?\/|(^|\/)tests\.rs$|\.(test|spec)\.tsx?$|\.qnt$/.test(file);
 
 const CITATION = /docs\/spec\.md, "([^"<][^"]*)"/g;
 /** A link by anchor into a file named `spec.md`, or `(#a)` within one. */

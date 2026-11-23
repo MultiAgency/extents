@@ -11,8 +11,10 @@ fix first, and `--sandbox` adds the Docker sandbox tests:
 scripts/check
 ```
 
-Its stages are the Rust format, clippy (native and wasm32 with `--features=contract`) and tests, then,
-from `app`, `pnpm typecheck`, `pnpm test` and `pnpm test:e2e`. CI runs all of them but the sandbox.
+Its stages are the Rust format, clippy (native and wasm32 with `--features=contract`) and tests, the
+formal model's invariants (`contracts/objective/model`, with Quint), then, from `app`,
+`pnpm typecheck`, `pnpm test` and `pnpm test:e2e`. `--model-replay` adds the contract replaying the
+model's runs (slow). CI runs all of them, the replay included, but the sandbox.
 Browser tests start local Bun, mock-model and mock-chain servers. Live sandbox tests need Docker:
 `cargo nextest run -p extents-sandbox --run-ignored only` (`.config/nextest.toml` runs three
 at a time and stops a hung test after 20 minutes).
@@ -73,7 +75,7 @@ See README.md, docs/app.md and docs/documents.md for the current behavior.
 
 # Resources
 
-References for working on this code.
+Useful references for working on this project.
 
 ## NEAR Intents
 

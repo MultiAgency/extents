@@ -55,6 +55,8 @@ near-sdk = { workspace = true, features = ["unit-testing"] }
 # the code identity near-sdk's mocked VM reports (`VMContextBuilder::account_contract`)
 near-primitives-core = "0.38"
 serde_json.workspace = true
+quint-connect = "=0.1.2"
+anyhow = "1"
 
 [package.metadata.near.reproducible_build]
 image = "sourcescan/cargo-near:0.22.0-rust-1.97.1"
