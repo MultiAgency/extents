@@ -134,6 +134,14 @@ the evaluator:
 | `a_withdrawn_slot_passes_between_contributor_and_backup` | The listed contributor commits, withdraws and commits again. After `commit_by` the backup takes the empty slot; the contributor can then neither take it back nor withdraw it. Delivered work cannot be withdrawn, and the holder at the verdict is paid the slot's share. |
 | `withdraw_and_cancel_by_signed_intent` | Commitment, withdrawal and cancellation by signed `auth_call` intents. |
 
+`tests/fastdata.rs` covers publishing to an objective's own account, which
+FastData indexes from calls to `__fastdata_kv`:
+
+| Test | Shows |
+| --- | --- |
+| `publishing_is_accepted_and_changes_nothing` | From an account with no role, the launch documents, an empty `{}` and a 100 KB document are each accepted, burning under 3 Tgas (1.3–1.5 measured). The objective's state, storage, NEAR and Verifier balances are identical before and after. |
+| `a_publish_with_a_deposit_is_refused` | A publish attaching 1 yoctoNEAR is refused, the yoctoNEAR returns to the sender, and nothing about the objective changes. |
+
 `tests/gas.rs` measures `ob_commit` and `ob_deliver` in an ordinary state and
 at the largest valid one (ten contributors, each with a backup, a window,
 `commit_by` and `auth_caller`). Both burn at most 1.7 Tgas, and the tests

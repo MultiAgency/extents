@@ -5,6 +5,7 @@
  */
 import { expect, type Page } from "@playwright/test";
 
+import { RPC_URL } from "../../src/shared/config.ts";
 import { test, BROWSER_NOW, send, setup, type Chain } from "./fixtures.ts";
 
 const methods = (chain: Chain) => chain.txs.map((t) => t.calls[0]!.method);
@@ -204,7 +205,7 @@ test("a successful funding receipt survives a failed downstream resolver during 
     const record = JSON.parse(localStorage.getItem(key)!);
     localStorage.setItem(key, JSON.stringify({ ...record, fundTx: "KNOWN" }));
   });
-  await page.route("https://rpc.testnet.near.org/**", (route) =>
+  await page.route(`${RPC_URL}/**`, (route) =>
     route.fulfill({
       headers: {
         "access-control-allow-origin": "*",
