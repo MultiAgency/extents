@@ -7,6 +7,7 @@ import { expect, type Page } from "@playwright/test";
 import { attestProposal, attestationOf } from "../../src/shared/attest.ts";
 import { reportHash, buildReview, summarize, type CheckResult } from "../../src/shared/review.ts";
 import { reviewHash } from "../../src/shared/spec.ts";
+import { RPC_URL } from "../../src/shared/config.ts";
 import { test, setup } from "./fixtures.ts";
 
 const ADDRESS = "0s" + "ab".repeat(20);
@@ -507,7 +508,7 @@ test("a lost response with a transaction hash is settled from its final receipt,
     "member.testnet",
   );
   let receipt: unknown = { final_execution_status: "INCLUDED" };
-  await page.route("https://rpc.testnet.near.org/**", (r) => r.fulfill({ json: { jsonrpc: "2.0", id: "proposal", result: receipt } }));
+  await page.route(`${RPC_URL}/**`, (r) => r.fulfill({ json: { jsonrpc: "2.0", id: "proposal", result: receipt } }));
   await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: { proposal_bond: "1", proposers: ["member.testnet"] } });
   await evaluation(page, PASSED);
   await page.goto(`/o/${ADDRESS}`);

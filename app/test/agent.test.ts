@@ -152,6 +152,10 @@ describe("customer agent", () => {
     expect(text).toContain("the customer is never a contributor");
   });
 
+  test("the instructions leave the acceptance window out unless asked for, never 0", () => {
+    expect(instructions(ACCOUNT, "2026-11-20T00:00:00Z")).toContain("leave acceptance_window_hours out entirely (never 0)");
+  });
+
   test("the instructions say only the customer funds", () => {
     expect(instructions(ACCOUNT, "2026-11-20T00:00:00Z")).toMatch(/Only the customer funds: contributors and the evaluator need no USDC/);
   });
