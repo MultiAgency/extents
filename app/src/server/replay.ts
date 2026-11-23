@@ -10,14 +10,13 @@
  */
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { ed25519 } from "@noble/curves/ed25519.js";
-import { hexToBytes } from "@noble/hashes/utils.js";
 
 import { sha256Hex } from "../shared/jcs.ts";
 import { judgedText, judgeRequest, utf8Bytes } from "../shared/judge.ts";
 import { reportHash } from "../shared/review.ts";
 import { parseReview, parseSpec, reviewHash, type Review, type Spec } from "../shared/spec.ts";
 import { runCheck, type CheckDeps } from "./checks.ts";
+import { judgement, MAX_RECEIPT_BYTES, receiptVerifies } from "./judge.ts";
 
 export interface Finding {
   status: "ok" | "inconclusive" | "problem";
@@ -33,7 +32,6 @@ export interface ReplayReport {
 }
 
 const HASH = /^[0-9a-f]{64}$/;
-const MAX_RECEIPT_BYTES = 16 * 1024;
 const text = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 
 export async function replay(directory: string, hash: string): Promise<ReplayReport> {
@@ -151,8 +149,7 @@ export async function replay(directory: string, hash: string): Promise<ReplayRep
     }
     try {
       const content = (JSON.parse(text(response)) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ?? "";
-      const first = content.trim().split("\n")[0] ?? "";
-      if (!/^(yes|no)$/i.test(first) || /^yes$/i.test(first) !== call.answer) note("problem", subject, `the archived response does not give the recorded answer (${call.answer ? "yes" : "no"})`);
+      if (judgement(content)?.answer !== call.answer) note("problem", subject, `the archived response does not give the recorded answer (${call.answer ? "yes" : "no"})`);
       else note("ok", subject, `the archived response gives the recorded answer (${call.answer ? "yes" : "no"})`);
     } catch {
       note("problem", subject, "the archived response is not a model response");
@@ -162,12 +159,7 @@ export async function replay(directory: string, hash: string): Promise<ReplayRep
       note("problem", subject, "the receipt over this request and response is not in the archive");
       continue;
     }
-    let verified = false;
-    try {
-      verified = ed25519.verify(hexToBytes(receipt.signature), new TextEncoder().encode(receipt.text), hexToBytes(receipt.signing_address));
-    } catch {
-      // malformed hex: not verified
-    }
+    const verified = receiptVerifies(receipt, { model: call.model, request: call.request_sha256, response: call.response_sha256 });
     const recorded = call.signature;
     if (!verified) note("problem", subject, "the archived receipt's signature does not verify");
     else if (recorded && (recorded.address !== receipt.signing_address || recorded.value !== receipt.signature))

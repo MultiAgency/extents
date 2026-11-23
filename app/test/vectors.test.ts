@@ -139,3 +139,26 @@ describe.skipIf(!resultsDir)("documents attested on testnet", () => {
     for (const r of run.reviews ?? []) expect(attested).toContain(reviewHash(parseReview(r, spec)));
   });
 });
+
+describe("blank text means Unicode White_Space, as in crates/spec", () => {
+  const withText = (patch: (doc: any) => void) => {
+    const doc = structuredClone(vectors("spec.json")) as any;
+    patch(doc);
+    return () => parseSpec(doc);
+  };
+  const fields: [string, (doc: any, v: string) => void][] = [
+    ["statement", (d, v) => (d.statement = v)],
+    ["criterion description", (d, v) => (d.criteria[0].description = v)],
+    ["live_url label", (d, v) => (d.criteria[0].check.label = v)],
+    ["live_url must_contain", (d, v) => (d.criteria[0].check.must_contain = v)],
+    ["contains phrase", (d, v) => (d.criteria[5].check.phrase = v)],
+    ["numeric_match label", (d, v) => (d.criteria[1].check.label = v)],
+    ["llm_judge question", (d, v) => (d.criteria[8].check.question = v)],
+  ];
+  test.each(fields)("%s: U+0085, U+00A0 and U+3000 alone are empty", (_, set) => {
+    for (const blank of ["\u0085", "\u00a0", "\u3000", " \t\n"]) expect(withText((d) => set(d, blank)), JSON.stringify(blank)).toThrow(/empty/);
+  });
+  test.each(fields)("%s: U+FEFF, U+200B and U+180E alone are text", (_, set) => {
+    for (const kept of ["\ufeff", "\u200b", "\u180e"]) expect(withText((d) => set(d, kept)), JSON.stringify(kept)).not.toThrow();
+  });
+});

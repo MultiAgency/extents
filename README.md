@@ -61,7 +61,8 @@ contributors ── ob_commit ──────────▶           │   
 **Interface:** `ob_view`, `ob_commit(params)`, `ob_withdraw(params)`,
 `ob_deliver(params, delivery)`, `ob_attest(params, attestation)`,
 `ob_cancel(params)`, `ob_close(params)`, and `mt_on_transfer` with
-`msg = {"params": …, "action": {"action": "fund"}}`. An attestation is
+`msg = {"params": …, "action": {"action": "fund"}}`. `__fastdata_kv` accepts
+[document publication](docs/documents.md#publication-and-reads) as a no-op. An attestation is
 `{"verdict": "achieved" | "failed", "review_hash"?: <hex>}`; the optional
 `review_hash` commits to the evaluator's [review](#extents-spec) and is
 published in the `resolved` event, so a verdict can be checked later. A

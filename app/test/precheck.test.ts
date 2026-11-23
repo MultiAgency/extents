@@ -1,5 +1,7 @@
 /** Checking a deliverable live, through AG-UI's own client against the app. */
 import { HttpAgent } from "@ag-ui/client";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { describe, expect, test, vi } from "vitest";
 
 import { createApp } from "../src/server/app.ts";
@@ -35,6 +37,7 @@ function client(
     archive?: CheckDeps["archive"];
     fetch?: typeof fetch;
     path?: string;
+    archiveObjectiveBytes?: number;
   } = {},
 ) {
   const chain: Chain = {
@@ -52,6 +55,7 @@ function client(
       judge: opts.judge ?? (async () => ({ answer: false, detail: "no venue or costs" })),
     },
     delivered: async (_, contributors) => (opts.delivered ?? []).filter((d) => contributors.includes(d.contributor)),
+    archiveObjectiveBytes: opts.archiveObjectiveBytes,
   });
   return new HttpAgent({
     url: `http://test${opts.path ?? "/api/check"}`,
@@ -281,6 +285,68 @@ describe("/api/evaluate", () => {
       expect(later.results.page).toMatchObject({ outcome: "fail" });
       expect(later.results.page!.detail).toMatch(/still unreachable 11 minutes/);
       expect(parseReview(later.summary.review, SPEC as never).verdict).toBe("failed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  test("an objective's evidence is stored within its own share of the archive, once", async () => {
+    const judge = async () => ({ answer: true, detail: "x", call: { ...CALL, answer: true } });
+    const options = { state: { delivered: 3 }, delivered: BOTH, path: "/api/evaluate", judge };
+    // what one evaluation asks the archive to keep: the spec, the reports and the fetched page, each distinct once
+    const distinct = new Map<string, number>();
+    const measured = client(
+      { params: p, spec: SPEC },
+      { ...options, archive: async (bytes: Uint8Array) => void distinct.set(bytesToHex(sha256(bytes)), bytes.byteLength) },
+    );
+    await check(measured, { objective: OBJECTIVE });
+    const total = [...distinct.values()].reduce((a, b) => a + b, 0);
+    expect(total).toBeGreaterThan(0);
+
+    // exactly that much is enough, however often the objective is evaluated: seen bytes cost nothing
+    const exact = client({ params: p, spec: SPEC }, { ...options, archive: async () => {}, archiveObjectiveBytes: total });
+    for (let run = 0; run < 3; run++) {
+      const r = await check(exact, { objective: OBJECTIVE });
+      expect(r.error).toBeUndefined();
+      expect(r.results.page).toMatchObject({ outcome: "pass" });
+    }
+
+    // one byte less and the objective runs out of share: a refusal or a skipped check, never a pass on unstored evidence
+    const tight = client({ params: p, spec: SPEC }, { ...options, archive: async () => {}, archiveObjectiveBytes: total - 1 });
+    const refused = await check(tight, { objective: OBJECTIVE });
+    expect(refused.error ?? refused.results.page?.detail).toMatch(/share of the evidence archive/);
+    expect(refused.summary?.review).toBeUndefined();
+  });
+  test("a failing evidence archive pauses the check and never ages into a contributor's failure", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-20T10:00:00Z"));
+      const agent = client(
+        { params: p, spec: SPEC },
+        {
+          state: { delivered: 3 },
+          delivered: BOTH,
+          path: "/api/evaluate",
+          // the page loads (the default fetch answers 200); the spec and reports were stored, but the quota runs out
+          // on the first fetched page
+          archive: async (bytes: Uint8Array) => {
+            if (new TextDecoder().decode(bytes).includes("Meetup in New York"))
+              throw new Error("The private evidence archive is full; evaluation is paused");
+          },
+          judge: async () => ({ answer: true, detail: "x", call: { ...CALL, answer: true } }),
+        },
+      );
+      const firstRun = await check(agent, { objective: OBJECTIVE });
+      expect(firstRun.results.page).toMatchObject({ outcome: "skipped" });
+      expect(firstRun.results.page!.detail).toMatch(/archive is full/);
+      expect(firstRun.results.page!.detail).not.toMatch(/Recorded|still unreachable/);
+      expect(firstRun.summary.review).toBeUndefined();
+
+      // well past the retry window: an unreachable host would fail by now; an archive error must not
+      vi.setSystemTime(new Date("2026-11-20T10:11:00Z"));
+      const later = await check(agent, { objective: OBJECTIVE });
+      expect(later.results.page).toMatchObject({ outcome: "skipped" });
+      expect(later.results.page!.detail).not.toMatch(/still unreachable/);
+      expect(later.summary.review).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
