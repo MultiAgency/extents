@@ -111,6 +111,10 @@ fn rejected_specs() {
         Error::NotNormalForm
     ));
     assert!(matches!(
+        rejected_spec("spec-schema-draft-07.json"),
+        Error::InvalidCheck { id, .. } if id == "attendance-json"
+    ));
+    assert!(matches!(
         rejected_spec("spec-statement-nel.json"),
         Error::Empty("statement")
     ));
@@ -357,5 +361,43 @@ fn blank_text_is_unicode_white_space() {
     }
     for kept in ["\u{feff}", "\u{200b}", "\u{180e}", "\u{1c}"] {
         assert!(with_statement(kept).is_ok(), "{kept:?}");
+    }
+}
+
+/// A `schema` criterion is JSON Schema draft 2020-12. A schema may say so, in either spelling of that dialect's
+/// identifier; one that names any other dialect is refused, not compiled under rules it was not written for.
+#[test]
+fn a_schema_names_no_dialect_but_2020_12() {
+    let with_dialect = |dialect: Value| {
+        let mut spec: Value = serde_json::from_slice(&vector("spec.json")).unwrap();
+        let schema = spec["criteria"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|c| c["check"]["kind"] == "schema")
+            .unwrap();
+        schema["check"]["json_schema"]["$schema"] = dialect;
+        Spec::from_json(&serde_json::to_vec(&spec).unwrap())
+    };
+    for named in [
+        "https://json-schema.org/draft/2020-12/schema",
+        "https://json-schema.org/draft/2020-12/schema#",
+    ] {
+        assert!(with_dialect(named.into()).is_ok(), "{named}");
+    }
+    for other in [
+        json!("http://json-schema.org/draft/2020-12/schema"),
+        json!("https://json-schema.org/draft/2020-12/schema##"),
+        json!("https://json-schema.org/draft/2019-09/schema"),
+        json!("http://json-schema.org/draft-07/schema#"),
+        json!("https://example.org/my-dialect"),
+        json!(""),
+        json!(5),
+        json!(null),
+    ] {
+        assert!(
+            matches!(with_dialect(other.clone()), Err(Error::InvalidCheck { id, .. }) if id == "attendance-json"),
+            "{other}"
+        );
     }
 }

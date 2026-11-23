@@ -196,6 +196,9 @@ export function validateAppSpec(s: Spec): void {
   }
 }
 
+/** The two spellings of the one dialect a `schema` criterion may name. Mirrors `SCHEMA_DIALECT` in `crates/spec`. */
+const SCHEMA_DIALECT = ["https://json-schema.org/draft/2020-12/schema", "https://json-schema.org/draft/2020-12/schema#"];
+
 function checkProblem(c: Check): string | undefined {
   const text = (field: string, value: string) => (isBlank(value) ? `${field} is empty` : undefined);
 
@@ -206,6 +209,9 @@ function checkProblem(c: Check): string | undefined {
       if (typeof c.json_schema !== "object" || c.json_schema === null || Array.isArray(c.json_schema)) {
         return "json_schema is not an object";
       }
+      // compiled as draft 2020-12 whatever it names, so a schema that names another dialect is refused
+      if ("$schema" in c.json_schema && !SCHEMA_DIALECT.includes(c.json_schema.$schema as string))
+        return "json_schema names a dialect other than draft 2020-12";
       try {
         new Ajv2020({ strict: false }).compile(c.json_schema);
         return undefined;

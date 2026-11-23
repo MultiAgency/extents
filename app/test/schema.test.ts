@@ -39,6 +39,12 @@ describe("compileSchema", () => {
     expect(() => compileSchema({ description: "x".repeat(20_000) })).toThrow(/larger than/);
     expect(() => compileSchema(nest(MAX_SCHEMA_DEPTH))).not.toThrow();
   });
+
+  test("refuses $dynamicRef: left unresolved it would compile here and fail every value, where crates/spec refuses the schema", () => {
+    expect(() => compileSchema({ type: "object", properties: { a: { $dynamicRef: "#x" } } })).toThrow(/\$dynamicRef/);
+    expect(() => compileSchema({ $dynamicAnchor: "x", type: "object", properties: { a: { $dynamicRef: "#x" } } })).toThrow(/\$dynamicRef/);
+    expect(() => compileSchema({ type: "object", properties: { a: { $ref: "#/$defs/n" } }, $defs: { n: { type: "integer" } } })).not.toThrow();
+  });
 });
 
 test("dataProblem bounds the validated JSON", () => {

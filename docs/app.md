@@ -143,7 +143,8 @@ if the wallet loses the response before returning a hash, chain absence alone ne
 
 A `schema` criterion's patterns run on RE2 (`re2js`), in linear time, so no pattern can backtrack catastrophically;
 patterns RE2 can't run (backreferences, lookaround) are refused when the spec is drafted. Schemas are capped at 16 KiB
-and 32 levels, and validated JSON at 256 KiB and 64 levels. These are the app's execution limits, not the protocol's,
+and 32 levels, and validated JSON at 256 KiB and 64 levels. A schema that uses `$dynamicRef` is refused: the app
+resolves one only when a value reaches it. These are the app's execution limits, not the protocol's,
 and they are checked before anything is compiled: when drafting, and when reading published terms, where a spec beyond
 them is still matched to its committed hash, without parsing, and marked unsupported. The page says so, and checks and
 evaluation refuse to run on it. FastData reads stream against a 4 MiB page cap and 16 MiB
