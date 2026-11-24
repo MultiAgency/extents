@@ -160,8 +160,8 @@ const AMOUNT: u128 = 1_000_009;
 /// commits and two deliveries.
 const DAO_DEADLINE_IN: Duration = Duration::from_mins(7);
 
-/// Time for an `OutLayer` run between the delivery and the verdict. A
-/// worker that has not run the program before can take minutes to answer.
+/// Time for an `OutLayer` run between the delivery and the verdict. One
+/// request has taken from 12 seconds to over two minutes.
 const OUTLAYER_DEADLINE_IN: Duration = Duration::from_mins(10);
 /// How long the program's signed intent, and its nonce, remain valid.
 const OUTLAYER_INTENT_TTL: Duration = Duration::from_mins(5);
