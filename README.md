@@ -105,8 +105,13 @@ derives from its EVM key (`PublicKey::to_implicit_account_id`). It then:
 
 1Click itself delivers to an `INTENTS` recipient as a plain balance credit
 with no notification, so tokens it delivers straight to the objective are
-never counted as funding (see Settlement). Not yet tried end to end: a
-1Click quote to a `0x…` recipient, which its docs neither show nor rule out.
+never counted as funding (see Settlement). A dry-run quote (`dry: true`, no
+deposit address, no funds) to a `0x…` recipient with `recipientType`
+`INTENTS` was tried on 2026-11-24 from Arbitrum USDC: a lowercase address was
+quoted, and the same address in mixed case (EIP-55 checksum) was refused with
+`400 recipient is not valid`. Account ids are lowercase, so name the sponsor's
+account that way. Not yet tried: a real deposit and delivery, so whether the credit
+lands on that Verifier balance is unobserved.
 
 **Commitment and delivery:** see the rules
 [a contributor commits before the deadline](docs/spec.md#a-contributor-commits-before-the-deadline) and

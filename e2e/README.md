@@ -273,6 +273,20 @@ member with the DAO's `ChangePolicy` permission pastes it at
 backend, per DAO. Filing through Trezu's UI itself has not been tried. On
 mainnet, `binding.receiver_id` is `v1.signer`.
 
+To try the UI once and record the result (needs a member with `ChangePolicy` on a testnet DAO, in a browser):
+
+1. `extents-e2e dao prepare …` and note the printed `intent` and `hash`.
+2. Create the template at `/<dao>/custom-templates/create` from `trezu/sign-intents.json`, and file a proposal from it
+   with those two values.
+3. Run `extents-e2e dao verify` on the proposal Trezu filed. It must recompute the same hash and accept the signer,
+   the Verifier and the deadline.
+4. Compare the filed `FunctionCall` args with the CLI's, byte for byte, and note any field the UI rewrites (quoting,
+   number formatting, whitespace).
+5. Record the DAO, proposal id and outcome here, and update the "has not been tried" sentence above.
+
+The unit test (`cargo test -p extents-e2e trezu_template_files_the_same_args`) passes at this commit; it does not cover
+the UI.
+
 **Shown on testnet (2026-11-20).** DAO `e2e-agency.sputnikv2.testnet`
 (created in tx `5UF9PVRyLMJvbhoEqPJdAJ6jjAw1HUB5GjHenPy4PBMA`), derived
 account `aa59f4f8d95bb6f755c51939c6504e4d9fe9b63cf4594cd31d47b8c1ee9f48f0`.
