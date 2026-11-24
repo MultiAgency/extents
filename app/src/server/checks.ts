@@ -6,7 +6,7 @@
  */
 import { sha256Hex } from "../shared/jcs.ts";
 import { compileSchema, dataProblem } from "../shared/schema.ts";
-import { readCapped, withTimeout } from "./bounded.ts";
+import { readCapped } from "./bounded.ts";
 import { BudgetError } from "./budget.ts";
 import { MAX_EVIDENCE_BYTES, publicUrl } from "./evidence-fetch.ts";
 import type { Criterion, Spec } from "../shared/spec.ts";
@@ -22,6 +22,7 @@ export interface Deliverable {
 }
 
 export interface CheckDeps {
+  /** Applies its own per-page timeout (`evidenceFetch` does); `signal` is only the run's. */
   fetch: typeof fetch;
   signal?: AbortSignal;
   archive?: (bytes: Uint8Array) => Promise<void>;
@@ -35,7 +36,6 @@ export interface CheckDeps {
   ) => Promise<{ answer: boolean; detail: string; call?: Omit<LlmCall, "criterion_id"> }>;
 }
 
-const TIMEOUT_MS = 10_000;
 const MAX_FETCHES = 10;
 
 export { publicUrl } from "./evidence-fetch.ts";
@@ -73,8 +73,8 @@ async function fetchPage(deps: CheckDeps, url: URL, raw: string): Promise<Loaded
   let res: Response;
   let bytes: Uint8Array;
   try {
-    const signal = withTimeout(deps.signal, TIMEOUT_MS);
-    res = await deps.fetch(url, { signal, redirect: "manual" });
+    // The transport owns the per-page clock, which starts when the fetch does, not while it waits for a slot.
+    res = await deps.fetch(url, { signal: deps.signal, redirect: "manual" });
     const encoding = res.headers.get("content-encoding");
     if (encoding && encoding !== "identity") return { unavailable: `${raw} returned an unsupported content encoding` };
     if ([408, 425, 429].includes(res.status) || res.status >= 500 || (res.status >= 300 && res.status < 400))

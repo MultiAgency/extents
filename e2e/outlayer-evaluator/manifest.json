@@ -1,0 +1,8 @@
+{
+  "display": { "name": "Extents evaluator probe" },
+  "operations": ["account", "attest"],
+  "capabilities": { "network": [] },
+  "signing_keys": [
+    { "path": "evaluator", "type": "ed25519", "bind": "wasm", "caller": "none" }
+  ]
+}

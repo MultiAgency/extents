@@ -43,6 +43,19 @@ jobs:
         with:
           node-version: 22
       - run: npm install -g @informalsystems/quint@0.34.0
+      # Quint 0.34.0 fetches its Rust evaluator v0.8.0 from the GitHub API without a token, which shared runners
+      # exhaust; fetch it with the job's token into the folder Quint checks first
+      - name: Fetch Quint's Rust evaluator
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir="$HOME/.quint/rust-evaluator-v0.8.0"
+          mkdir -p "$dir"
+          gh release download evaluator/v0.8.0 --repo quint-co/quint \
+            --pattern quint_evaluator-x86_64-unknown-linux-gnu.tar.gz --dir "$dir"
+          tar -xzf "$dir/quint_evaluator-x86_64-unknown-linux-gnu.tar.gz" -C "$dir"
+          rm "$dir/quint_evaluator-x86_64-unknown-linux-gnu.tar.gz"
+          chmod +x "$dir/quint_evaluator"
       # the formal model's invariants, over random runs (contracts/objective/model/README.md)
       - run: quint run objective.qnt --invariant invariants --max-samples 20000 --max-steps 80 --seed 1
       - name: Install the pinned toolchain

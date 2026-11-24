@@ -91,7 +91,23 @@ cargo run -p extents-e2e -- run deposit achieved failed expired auth-call max ma
 | `release` | The sponsor releases the payment itself, without the evaluator. Its achieved verdict is refused until both contributors have delivered, then resolves as `released` and pays the split exactly. |
 | `cancel` | The sponsor's cancel is refused while a contributor is committed. Once it withdraws (a `withdrawn` event), the cancel returns everything to the sponsor as `cancelled`, and a later commitment is refused. |
 | `withdraw` | `c2` backs `c1`. `c1` commits and withdraws before `commit_by`; after it, `c2` takes the empty slot, and `c1` can neither take it back nor withdraw it. Delivered work cannot be withdrawn, and the achieved verdict pays `c2` the slot's share. |
+| `outlayer-evaluator` | The evaluator is a program. [`outlayer-evaluator`](outlayer-evaluator) is a WASI module whose manifest declares an ed25519 key bound to the exact build and to no caller; OutLayer issues it only inside its TEE workers, and its implicit account is `Params.evaluator`. The scenario uploads the wasm to FastFS, asks the program for its account from two callers (the same one), and sets the spec's `evaluator_build` to the wasm's sha256. One contributor commits and delivers a report. Another account's verdict is `unauthorized`. Given the delivery's transaction, the program reads it through the worker's RPC and refuses a report whose hash was not delivered. For the delivered report it judges its one criterion, writes a short review, and signs an `auth_call` attest intent in the Verifier's `raw_ed25519` form with the review's hash, which the deployer relays: the objective resolves `achieved` and pays. No key is registered on the Verifier. Needs the program built (below). A probe: one criterion, the review is the program's own format rather than an `extents-spec` review, and it trusts the worker's RPC. |
 | `accepted`  | `acceptance_window_secs` is 180 s. Both contributors commit and deliver; the last delivery's `attest_by` falls after the deadline. `ob_close` is refused after the deadline while the window is open, and after it resolves as `accepted` with no review, paying the 70/30 split. Needs a contract published after `ob_deliver` was added. |
+
+`outlayer-evaluator` needs its program built for `wasm32-wasip2`. The key
+belongs to the build, so a rebuild that changes the wasm's sha256 is another
+evaluator account:
+
+```sh
+rustup target add wasm32-wasip2
+(cd e2e/outlayer-evaluator && cargo build --release)
+# target/outlayer-evaluator/wasm32-wasip2/release/outlayer-evaluator.wasm
+```
+
+Each run through OutLayer (`outlayer.testnet`) is a `request_execution` paid in
+NEAR by its caller, and returns the program's output as the transaction's
+result. Its attestation, with the wasm, input and output hashes and the TDX
+quote, is at `https://testnet-api.outlayer.ai/attestations/by-tx/<tx hash>`.
 
 Every scenario except `expired` ends by waiting for its deadline and calling
 `ob_close`, which deletes the account; the run then confirms with
@@ -272,6 +288,20 @@ member with the DAO's `ChangePolicy` permission pastes it at
 `/<dao>/custom-templates/create` in Trezu. Trezu stores templates in its own
 backend, per DAO. Filing through Trezu's UI itself has not been tried. On
 mainnet, `binding.receiver_id` is `v1.signer`.
+
+To try the UI once and record the result (needs a member with `ChangePolicy` on a testnet DAO, in a browser):
+
+1. `extents-e2e dao prepare …` and note the printed `intent` and `hash`.
+2. Create the template at `/<dao>/custom-templates/create` from `trezu/sign-intents.json`, and file a proposal from it
+   with those two values.
+3. Run `extents-e2e dao verify` on the proposal Trezu filed. It must recompute the same hash and accept the signer,
+   the Verifier and the deadline.
+4. Compare the filed `FunctionCall` args with the CLI's, byte for byte, and note any field the UI rewrites (quoting,
+   number formatting, whitespace).
+5. Record the DAO, proposal id and outcome here, and update the "has not been tried" sentence above.
+
+The unit test (`cargo test -p extents-e2e trezu_template_files_the_same_args`) passes at this commit; it does not cover
+the UI.
 
 **Shown on testnet (2026-11-20).** DAO `e2e-agency.sputnikv2.testnet`
 (created in tx `5UF9PVRyLMJvbhoEqPJdAJ6jjAw1HUB5GjHenPy4PBMA`), derived

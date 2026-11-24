@@ -1,7 +1,8 @@
 /** Extents for other agents: the JSON API /llms.txt documents, against the app in process. */
-import { beforeAll, describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 
 import { createApp } from "../src/server/app.ts";
+import { BudgetError } from "../src/server/budget.ts";
 import type { Chain } from "../src/server/tools.ts";
 import { attestArgs, attestationOf, attestProposal } from "../src/shared/attest.ts";
 import { parseLaunchFragment, type LaunchLink } from "../src/shared/launch-link.ts";
@@ -143,6 +144,47 @@ test("deploys through the server's deployer, and publishes the terms when given 
     value: { error: "the spec does not match params.spec_hash" },
   });
   expect(deployed).toHaveLength(2);
+});
+
+describe("deploy statuses", () => {
+  const o = buildObjective(proposal.parse(PROPOSAL), "customer.testnet", "ef".repeat(32), CODE_HASH);
+  const params = JSON.parse(JSON.stringify(o.params));
+  const withDeploy = (deploy: (params: unknown, spec: unknown) => Promise<unknown>) =>
+    createApp({
+      model: { name: "unused", stream: () => (async function* () {})() },
+      chain,
+      deploy: deploy as never,
+      checks: { fetch },
+      delivered: async () => [],
+    });
+  const call = async (api: ReturnType<typeof createApp>, body: unknown) => {
+    const r = await api.request("/api/deploy", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { status: r.status, value: await r.json() as { error?: string } };
+  };
+
+  test("a body that is not {params} is the caller's mistake, without an internal message", async () => {
+    const api = withDeploy(async () => ({ accountId: "0s", txHash: "T" }));
+    for (const body of [{}, null, [], { params: null }, { params: "x" }]) {
+      const r = await call(api, body);
+      expect(r.status).toBe(400);
+      expect(r.value.error).toBe("the body must be an object with params");
+    }
+    // params the validator reports on: its own message
+    expect(await call(api, { params: {} })).toEqual({ status: 400, value: { error: "token is not a NEP-245 token id" } });
+    // params the validator cannot read at all: a generic message, never the TypeError's text
+    expect(await call(api, { params: { token: "nep245:v.near:1", contributors: null } })).toEqual({ status: 400, value: { error: "params are not valid" } });
+  });
+
+  test("a spent service budget answers 429, and a failed deploy 502 with no internal message", async () => {
+    const budget = withDeploy(async () => { throw new BudgetError(); });
+    expect(await call(budget, { params })).toEqual({ status: 429, value: { error: "Service budget reached; try again later" } });
+    const failing = withDeploy(async () => { throw new Error("DEPLOYER_ACCOUNT_ID and DEPLOYER_PRIVATE_KEY are not set"); });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await call(failing, { params });
+    expect(r).toEqual({ status: 502, value: { error: "deploy failed; try again" } });
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
+  });
 });
 
 describe("review", () => {

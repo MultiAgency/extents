@@ -17,6 +17,7 @@ near-kit = { version = "0.20.1", features = ["file-signer"] }
 
 anyhow = "1"
 base64 = "0.22"
+borsh = { workspace = true, features = ["derive"] }
 bs58 = "0.5"
 clap = { version = "4", features = ["derive", "env"] }
 dotenvy = "0.15"

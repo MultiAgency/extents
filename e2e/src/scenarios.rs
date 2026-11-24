@@ -1,8 +1,12 @@
 use std::{collections::BTreeMap, time::Duration};
 
 use anyhow::{Context, Result, bail};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use clap::ValueEnum;
-use extents_client::objective::{self as client, Call, Objective};
+use extents_client::{
+    Payload,
+    objective::{self as client, Call, Objective},
+};
 use extents_objective::{
     Attestation, Delivery, Params, Pips, Timestamp, Verdict, auth_call::Action, token_id::TokenId,
 };
@@ -10,12 +14,14 @@ use extents_spec::Review;
 use near_kit::{AccountId, Gas, NearToken};
 use serde::Serialize;
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::{
     Config,
     accounts::{Accounts, code_hash},
     chain::{Chain, Tx},
     dao, documents, intent,
+    outlayer::Program,
 };
 
 #[derive(Debug, Clone, Copy, ValueEnum, Serialize)]
@@ -61,6 +67,10 @@ pub enum Scenario {
     /// A contributor commits and withdraws; after `commit_by` its backup
     /// takes the empty slot, cannot withdraw once delivered, and is paid.
     Withdraw,
+    /// The evaluator is a program: the implicit account of a key `OutLayer`
+    /// issues only to one build of `e2e/outlayer-evaluator`. The program
+    /// judges the report and signs the attestation, which anyone relays.
+    OutlayerEvaluator,
 }
 
 /// Everything recorded for one scenario.
@@ -150,6 +160,11 @@ const AMOUNT: u128 = 1_000_009;
 /// commits and two deliveries.
 const DAO_DEADLINE_IN: Duration = Duration::from_mins(7);
 
+/// Time for an `OutLayer` run between the delivery and the verdict.
+const OUTLAYER_DEADLINE_IN: Duration = Duration::from_mins(6);
+/// How long the program's signed intent, and its nonce, remain valid.
+const OUTLAYER_INTENT_TTL: Duration = Duration::from_mins(5);
+
 /// NEAR offered as a `StateInit` deposit (which is refunded), then
 /// transferred to the expired instance to show where deletion sends it.
 const SURPLUS: NearToken = NearToken::from_millinear(1);
@@ -193,6 +208,7 @@ impl Scenario {
             Self::Release => release(&ctx, &mut run).await,
             Self::Cancel => cancel(&ctx, &mut run).await,
             Self::Withdraw => withdraw(&ctx, &mut run).await,
+            Self::OutlayerEvaluator => outlayer_evaluator(&ctx, &mut run).await,
         };
         if let Err(err) = result {
             run.check("completed", false, format!("{err:#}"));
@@ -1474,6 +1490,230 @@ async fn withdraw(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     );
 
     let closer = c2.clone();
+    ob.close_after_deadline(&closer).await?;
+    Ok(())
+}
+
+/// A request to `OutLayer`, recorded beside the objective's own steps.
+fn record_run(run: &mut Run, tx: Tx) {
+    run.steps.push(Step {
+        tx,
+        before: Balances::EMPTY,
+        after: Balances::EMPTY,
+    });
+}
+
+/// `intent`, an `auth_call`, with its `msg` parsed: two serializations of one
+/// message compare equal.
+fn with_parsed_msg(intent: &Value) -> Value {
+    let mut intent = intent.clone();
+    if let Some(msg) = intent["msg"].as_str().map(serde_json::from_str::<Value>) {
+        intent["msg"] = msg.unwrap_or_default();
+    }
+    intent
+}
+
+/// The account of the program's key. The key belongs to the build and to no
+/// caller, so two callers are told the same one.
+async fn program_account(ctx: &Ctx<'_>, run: &mut Run, program: &Program) -> Result<AccountId> {
+    let a = ctx.accounts;
+    let mut answers = Vec::new();
+    for caller in [&a.deployer, &a.evaluator] {
+        let (tx, output) = program
+            .run(
+                ctx.chain,
+                &format!("the program's account, asked by {caller}"),
+                caller,
+                &json!({ "operation": "account" }),
+            )
+            .await?;
+        record_run(run, tx);
+        answers.push(output["account_id"].as_str().unwrap_or_default().to_owned());
+    }
+    run.check(
+        "the program has one account, whoever asks",
+        answers[0].len() == 64 && answers[0] == answers[1],
+        format!("{answers:?}"),
+    );
+    Ok(answers[0].parse()?)
+}
+
+/// Asks the program to judge `deliveries` for `ob` and sign its verdict as
+/// `evaluator`. Returns its output.
+async fn judge(
+    ob: &mut Instance<'_, '_>,
+    program: &Program,
+    evaluator: &AccountId,
+    label: &str,
+    deliveries: Value,
+) -> Result<Value> {
+    let chain = ob.ctx.chain;
+    let salt: String = chain
+        .view(&chain.verifier, "current_salt", &json!({}))
+        .await?;
+    let deadline = chain.block_time().await? + OUTLAYER_INTENT_TTL;
+    let nonce = Payload::new(evaluator, &chain.verifier, &salt, deadline, &[])?.nonce;
+    // The gas an attestation's payouts need, whatever its verdict.
+    let attest = ob
+        .objective
+        .auth_call(Action::Attest(Verdict::Achieved.into()));
+    let (tx, output) = program
+        .run(
+            chain,
+            label,
+            &ob.ctx.accounts.deployer,
+            &json!({
+                "operation": "attest",
+                "verifier": chain.verifier,
+                "objective": ob.objective.account(),
+                "params": ob.objective.params(),
+                "deliveries": deliveries,
+                "deadline": deadline,
+                "nonce": BASE64.encode(nonce),
+                "min_gas": attest["min_gas"],
+            }),
+        )
+        .await?;
+    record_run(ob.run, tx);
+    Ok(output)
+}
+
+/// Checks the program's `output` for `ob`: its review of `contributor`'s
+/// delivery of `hash`, and the intent it signed as `evaluator`. Returns that
+/// intent and the review's hash.
+fn check_judgement(
+    ob: &mut Instance<'_, '_>,
+    output: &Value,
+    evaluator: &AccountId,
+    contributor: &AccountId,
+    hash: [u8; 32],
+) -> (Value, [u8; 32]) {
+    // The review is the program's own record of what it judged.
+    let review = output["review"].as_str().unwrap_or_default();
+    let review_hash: [u8; 32] = Sha256::digest(review).into();
+    let review: Value = serde_json::from_str(review).unwrap_or_default();
+    ob.run.check(
+        "the program's review names the objective and the delivery it read",
+        review["objective"] == ob.objective.account().as_str()
+            && review["deliveries"][contributor.as_str()] == hex::encode(hash)
+            && review["verdict"] == "achieved",
+        review.to_string(),
+    );
+    ob.run.reviews.push(review);
+
+    let expected = ob.objective.auth_call(Action::Attest(Attestation {
+        verdict: Verdict::Achieved,
+        review_hash: Some(review_hash),
+    }));
+    let signed = output["signed"].clone();
+    let payload: Value =
+        serde_json::from_str(signed["payload"].as_str().unwrap_or_default()).unwrap_or_default();
+    ob.run.check(
+        "the program signed, as itself, the intent the client builds",
+        payload["signer_id"] == evaluator.as_str()
+            && with_parsed_msg(&payload["intents"][0]) == with_parsed_msg(&expected),
+        payload.to_string(),
+    );
+    (signed, review_hash)
+}
+
+async fn outlayer_evaluator(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
+    let a = ctx.accounts;
+    let contributor = a
+        .contributors
+        .iter()
+        .find(|c| **c != a.sponsor)
+        .context("no contributor other than the sponsor")?;
+    let wasm = std::fs::read(&ctx.config.outlayer_wasm).with_context(|| {
+        format!(
+            "reading {}; build it first: (cd e2e/outlayer-evaluator && cargo build --release)",
+            ctx.config.outlayer_wasm.display()
+        )
+    })?;
+    let program = Program::publish(ctx.chain, &a.deployer, &wasm).await?;
+    println!("  program sha256 {}", hex::encode(program.sha256));
+
+    let evaluator = program_account(ctx, run, &program).await?;
+
+    let spec = documents::outlayer_spec(program.sha256);
+    let mut params = ctx.params(&[(contributor, 1_000_000)], true)?;
+    params.evaluator = evaluator.as_str().parse()?;
+    params.spec_hash = spec.hash()?;
+    params.deadline = Timestamp::now() + OUTLAYER_DEADLINE_IN;
+    let mut ob = ctx.deploy(run, params, NearToken::ZERO).await?;
+    ob.run.spec = Some(serde_json::to_value(&spec)?);
+    ob.fund(AMOUNT).await?;
+
+    let report = format!("# Report\n\n{}\n\n1. Probe.\n", documents::OUTLAYER_PHRASE);
+    let hash: [u8; 32] = Sha256::digest(&report).into();
+    let committed = ob.commit(contributor).await?;
+    let deliver = ob.objective.deliver(&Delivery { hash });
+    let delivered = ob
+        .call(
+            &format!("ob_deliver by {contributor}"),
+            contributor,
+            &deliver,
+        )
+        .await?;
+    ob.run.check(
+        &format!("{contributor} committed and delivered the report"),
+        committed.ok && delivered.events_of("delivered").count() == 1,
+        format!("tx {}, tx {}", committed.hash, delivered.hash),
+    );
+
+    let refused = ob.attest(Verdict::Achieved.into()).await?;
+    ob.check_refused(
+        "another account's verdict is refused",
+        &refused,
+        "unauthorized",
+    );
+
+    // The program reads the delivery from the chain: only the report whose
+    // hash was delivered can be judged.
+    let delivery =
+        |report: &str| json!([{ "report": report, "tx": delivered.hash, "signer": contributor }]);
+    let other = judge(
+        &mut ob,
+        &program,
+        &evaluator,
+        "the program is given a report that was not delivered",
+        delivery(&format!("{report}Edited.\n")),
+    )
+    .await?;
+    ob.run.check(
+        "the program refuses a report that was not delivered",
+        other.get("signed").is_none()
+            && other["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("records no delivery of this report")),
+        other.to_string(),
+    );
+    let output = judge(
+        &mut ob,
+        &program,
+        &evaluator,
+        "the program checks the delivery, judges the report and signs its verdict",
+        delivery(&report),
+    )
+    .await?;
+
+    let (signed, review_hash) = check_judgement(&mut ob, &output, &evaluator, contributor, hash);
+
+    let before = ob.balances().await?;
+    let tx = ob
+        .execute_intents("auth_call attest signed by the program", &[signed])
+        .await?;
+    let resolved = tx.events_of("resolved").next().cloned().unwrap_or_default();
+    ob.run.check(
+        "the program's verdict resolved the objective",
+        resolved["data"]["outcome"] == "achieved"
+            && resolved["data"]["review_hash"] == hex::encode(review_hash),
+        resolved["data"].to_string(),
+    );
+    let expected = ob.expected_split(AMOUNT);
+    ob.check_payouts(&tx, &before, &expected);
+
+    let closer = a.deployer.clone();
     ob.close_after_deadline(&closer).await?;
     Ok(())
 }

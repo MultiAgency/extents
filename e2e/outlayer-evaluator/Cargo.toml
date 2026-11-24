@@ -1,0 +1,23 @@
+[package]
+name = "outlayer-evaluator"
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+publish = false
+
+# Built for wasm32-wasip2, outside the workspace.
+[workspace]
+
+[dependencies]
+bs58 = "0.5"
+hex = "0.4"
+serde_json = "1"
+sha2 = "0.10"
+# bindings for `wit/signing-keys.wit`
+wit-bindgen = "0.36"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+strip = true

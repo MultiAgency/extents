@@ -11,7 +11,7 @@ Agents can draft and launch objectives for a sponsor, read their state, check sp
 
 ## API
 
-Plain JSON over HTTPS. Send `content-type: application/json`. Errors are `{"error": "…"}` with status 400 (bad input; the message says what), 404, 429 (the hourly allowance is spent; retry later) or 502 (a chain read failed; retry). Amounts are decimal strings. Nothing is ever signed or sent for you, except `POST /api/deploy`, which anyone may call.
+Plain JSON over HTTPS. Send `content-type: application/json`. Errors are `{"error": "…"}` with status 400 (bad input; the message says what), 404, 429 (the hourly allowance is spent; retry later) or 502 (a chain read or the deploy failed; retry). Amounts are decimal strings. Nothing is ever signed or sent for you, except `POST /api/deploy`, which anyone may call.
 
 - `POST /api/tools/propose_spec` — body: a spec (`{v: 1, statement, criteria: [{id, description, check: {kind, …}}], max_report_bytes?}`). Returns `{ok: true, spec_hash}` or `{ok: false, error}`: fix the error and check again.
 - `POST /api/tools/check_accounts` — body `{accounts: ["a.testnet", …]}` (1 to 12). Returns each account mapped to whether it exists.
