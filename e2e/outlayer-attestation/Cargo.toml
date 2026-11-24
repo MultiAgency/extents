@@ -1,0 +1,20 @@
+[package]
+name = "outlayer-attestation"
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+publish = false
+
+# A tool of its own, outside the workspace: it shares none of its dependencies.
+[workspace]
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+# Intel's quote verification, by Phala: the line OutLayer's register contract uses.
+dcap-qvl = "0.3.12"
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -84,12 +84,12 @@ pub struct Config {
     )]
     pub wasm: PathBuf,
 
-    /// The evaluator program of the `outlayer-evaluator` scenario, built
-    /// from `e2e/outlayer-evaluator`.
+    /// The evaluator program of the `outlayer-evaluator` scenario: the
+    /// reproducible build of `e2e/outlayer-evaluator`, by its `build.sh`.
     #[arg(
         long,
         env = "E2E_OUTLAYER_WASM",
-        default_value = "target/outlayer-evaluator/wasm32-wasip2/release/outlayer-evaluator.wasm"
+        default_value = "target/outlayer-evaluator/reproducible/outlayer-evaluator.wasm"
     )]
     pub outlayer_wasm: PathBuf,
 

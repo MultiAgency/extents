@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context, Result};
 use extents_client::objective::Call;
 use extents_objective::Timestamp;
@@ -6,7 +8,7 @@ use near_kit::{
     protocol::StateInit,
     rpc::{ActionView, BlockReference, FinalExecutionOutcome, Finality},
     signer::FileSigner,
-    transaction::{Final, TransactionBuilder},
+    transaction::{Final, Included, TransactionBuilder},
 };
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::Serialize;
@@ -219,6 +221,43 @@ impl Chain {
         self.send(label, signer, tx).await
     }
 
+    /// Sends `call` as `signer`, and waits up to `patience` for its result: a
+    /// call that yields, as a request to `OutLayer` does until a worker
+    /// answers, can outlast the time an RPC node holds a request open.
+    pub async fn call_slow(
+        &self,
+        label: &str,
+        signer: &AccountId,
+        call: &Call,
+        patience: Duration,
+    ) -> Result<Tx> {
+        let sent = self
+            .as_signer(signer)?
+            .call(call.receiver.clone(), call.method)
+            .args(&call.args)
+            .gas(call.gas)
+            .deposit(call.deposit)
+            .finish()
+            .wait_until::<Included>()
+            .await?;
+        let waited = tokio::time::Instant::now();
+        let full = loop {
+            let status = self
+                .near
+                .tx_status(&sent.transaction_hash, signer.clone())
+                .wait_until::<Final>()
+                .await;
+            match status {
+                Ok(full) => break full,
+                Err(_) if waited.elapsed() < patience => {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+                Err(err) => return Err(err).with_context(|| format!("{label}: no result")),
+            }
+        };
+        Ok(Self::report(label, signer, &full))
+    }
+
     async fn send(&self, label: &str, signer: &AccountId, tx: TransactionBuilder) -> Result<Tx> {
         let sent = tx.wait_until::<Final>().await?;
         // `send` omits receipt bodies; `tx_status` has them.
@@ -227,7 +266,12 @@ impl Chain {
             .tx_status(sent.transaction_hash(), signer.clone())
             .wait_until::<Final>()
             .await?;
-        let tx = record(label, signer, &full);
+        Ok(Self::report(label, signer, &full))
+    }
+
+    /// Records `outcome`, and prints how it went.
+    fn report(label: &str, signer: &AccountId, outcome: &FinalExecutionOutcome) -> Tx {
+        let tx = record(label, signer, outcome);
         println!(
             "  {label}: {} {} ({:.1} Tgas){}",
             if tx.ok { "ok" } else { "FAILED" },
@@ -246,7 +290,7 @@ impl Chain {
                 r.error.as_deref().unwrap_or("?")
             );
         }
-        Ok(tx)
+        tx
     }
 }
 

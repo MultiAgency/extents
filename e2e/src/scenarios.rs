@@ -10,7 +10,7 @@ use extents_client::{
 use extents_objective::{
     Attestation, Delivery, Params, Pips, Timestamp, Verdict, auth_call::Action, token_id::TokenId,
 };
-use extents_spec::Review;
+use extents_spec::{Review, Spec};
 use near_kit::{AccountId, Gas, NearToken};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -160,8 +160,9 @@ const AMOUNT: u128 = 1_000_009;
 /// commits and two deliveries.
 const DAO_DEADLINE_IN: Duration = Duration::from_mins(7);
 
-/// Time for an `OutLayer` run between the delivery and the verdict.
-const OUTLAYER_DEADLINE_IN: Duration = Duration::from_mins(6);
+/// Time for an `OutLayer` run between the delivery and the verdict. A
+/// worker that has not run the program before can take minutes to answer.
+const OUTLAYER_DEADLINE_IN: Duration = Duration::from_mins(10);
 /// How long the program's signed intent, and its nonce, remain valid.
 const OUTLAYER_INTENT_TTL: Duration = Duration::from_mins(5);
 
@@ -1538,13 +1539,14 @@ async fn program_account(ctx: &Ctx<'_>, run: &mut Run, program: &Program) -> Res
     Ok(answers[0].parse()?)
 }
 
-/// Asks the program to judge `deliveries` for `ob` and sign its verdict as
-/// `evaluator`. Returns its output.
+/// Asks the program to judge `deliveries` for `ob` by `spec` and sign its
+/// verdict as `evaluator`. Returns its output.
 async fn judge(
     ob: &mut Instance<'_, '_>,
     program: &Program,
     evaluator: &AccountId,
     label: &str,
+    spec: &Spec,
     deliveries: Value,
 ) -> Result<Value> {
     let chain = ob.ctx.chain;
@@ -1567,6 +1569,7 @@ async fn judge(
                 "verifier": chain.verifier,
                 "objective": ob.objective.account(),
                 "params": ob.objective.params(),
+                "spec": spec,
                 "deliveries": deliveries,
                 "deadline": deadline,
                 "nonce": BASE64.encode(nonce),
@@ -1578,28 +1581,55 @@ async fn judge(
     Ok(output)
 }
 
-/// Checks the program's `output` for `ob`: its review of `contributor`'s
-/// delivery of `hash`, and the intent it signed as `evaluator`. Returns that
-/// intent and the review's hash.
+/// Checks that the program refused, with `reason`, and signed nothing.
+fn check_refusal(ob: &mut Instance<'_, '_>, name: &str, output: &Value, reason: &str) {
+    ob.run.check(
+        name,
+        output.get("signed").is_none()
+            && output["error"].as_str().is_some_and(|e| e.contains(reason)),
+        output.to_string(),
+    );
+}
+
+/// Checks the program's `output` for `ob`: its review, a valid one of `spec`
+/// that records `contributor`'s delivery of `hash` and the page it fetched,
+/// and the intent it signed as `evaluator`. Returns that intent and the
+/// review's hash.
 fn check_judgement(
     ob: &mut Instance<'_, '_>,
     output: &Value,
+    spec: &Spec,
     evaluator: &AccountId,
     contributor: &AccountId,
     hash: [u8; 32],
 ) -> (Value, [u8; 32]) {
-    // The review is the program's own record of what it judged.
-    let review = output["review"].as_str().unwrap_or_default();
-    let review_hash: [u8; 32] = Sha256::digest(review).into();
-    let review: Value = serde_json::from_str(review).unwrap_or_default();
+    let review = serde_json::to_vec(&output["review"])
+        .ok()
+        .and_then(|bytes| Review::from_json(&bytes, spec).ok());
+    let review_hash = review
+        .as_ref()
+        .and_then(|r| r.hash().ok())
+        .unwrap_or_default();
+    let fetched = review.as_ref().is_some_and(|r| {
+        r.results.iter().any(|result| {
+            result.criterion_id == "merged"
+                && result.evidence.len() == 1
+                && result.evidence[0].url == documents::MERGED_PULL
+        })
+    });
     ob.run.check(
-        "the program's review names the objective and the delivery it read",
-        review["objective"] == ob.objective.account().as_str()
-            && review["deliveries"][contributor.as_str()] == hex::encode(hash)
-            && review["verdict"] == "achieved",
-        review.to_string(),
+        "the program's review is a valid review of the spec, of the delivery and the page it read",
+        review.as_ref().is_some_and(|r| {
+            r.objective.as_str() == ob.objective.account().as_str()
+                && r.verdict == extents_spec::Verdict::Achieved
+                && r.evaluator_build == spec.evaluator_build
+                && r.deliverables.len() == 1
+                && r.deliverables[0].contributor.as_str() == contributor.as_str()
+                && r.deliverables[0].sha256 == hash
+        }) && fetched,
+        output.to_string(),
     );
-    ob.run.reviews.push(review);
+    ob.run.reviews.push(output["review"].clone());
 
     let expected = ob.objective.auth_call(Action::Attest(Attestation {
         verdict: Verdict::Achieved,
@@ -1617,6 +1647,53 @@ fn check_judgement(
     (signed, review_hash)
 }
 
+/// What the program will not judge: a spec the terms do not commit to, with
+/// the `delivered` report, and an `edited` report nobody delivered.
+async fn refusals(
+    ob: &mut Instance<'_, '_>,
+    program: &Program,
+    evaluator: &AccountId,
+    spec: &Spec,
+    edited: Value,
+    delivered: Value,
+) -> Result<()> {
+    let other_spec = documents::outlayer_spec(
+        program.sha256,
+        "https://api.github.com/repos/MultiAgency/extents/pulls/14",
+    );
+    let output = judge(
+        ob,
+        program,
+        evaluator,
+        "the program is given a spec other than the terms'",
+        &other_spec,
+        delivered,
+    )
+    .await?;
+    check_refusal(
+        ob,
+        "the program refuses a spec the terms do not commit to",
+        &output,
+        "is not the one `params.spec_hash` commits to",
+    );
+    let output = judge(
+        ob,
+        program,
+        evaluator,
+        "the program is given a report that was not delivered",
+        spec,
+        edited,
+    )
+    .await?;
+    check_refusal(
+        ob,
+        "the program refuses a report that was not delivered",
+        &output,
+        "records no delivery of this report",
+    );
+    Ok(())
+}
+
 async fn outlayer_evaluator(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     let a = ctx.accounts;
     let contributor = a
@@ -1626,7 +1703,7 @@ async fn outlayer_evaluator(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
         .context("no contributor other than the sponsor")?;
     let wasm = std::fs::read(&ctx.config.outlayer_wasm).with_context(|| {
         format!(
-            "reading {}; build it first: (cd e2e/outlayer-evaluator && cargo build --release)",
+            "reading {}; build it first: e2e/outlayer-evaluator/build.sh",
             ctx.config.outlayer_wasm.display()
         )
     })?;
@@ -1635,7 +1712,7 @@ async fn outlayer_evaluator(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
 
     let evaluator = program_account(ctx, run, &program).await?;
 
-    let spec = documents::outlayer_spec(program.sha256);
+    let spec = documents::outlayer_spec(program.sha256, documents::MERGED_PULL);
     let mut params = ctx.params(&[(contributor, 1_000_000)], true)?;
     params.evaluator = evaluator.as_str().parse()?;
     params.spec_hash = spec.hash()?;
@@ -1644,7 +1721,11 @@ async fn outlayer_evaluator(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     ob.run.spec = Some(serde_json::to_value(&spec)?);
     ob.fund(AMOUNT).await?;
 
-    let report = format!("# Report\n\n{}\n\n1. Probe.\n", documents::OUTLAYER_PHRASE);
+    let report = format!(
+        "## Summary\n\nProbe of an evaluator that is a program.\n\n{}: {}\n",
+        documents::PULL_LABEL,
+        documents::MERGED_PULL
+    );
     let hash: [u8; 32] = Sha256::digest(&report).into();
     let committed = ob.commit(contributor).await?;
     let deliver = ob.objective.deliver(&Delivery { hash });
@@ -1668,36 +1749,20 @@ async fn outlayer_evaluator(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
         "unauthorized",
     );
 
-    // The program reads the delivery from the chain: only the report whose
-    // hash was delivered can be judged.
+    // The program reads the terms and the delivery itself.
     let delivery =
         |report: &str| json!([{ "report": report, "tx": delivered.hash, "signer": contributor }]);
-    let other = judge(
-        &mut ob,
-        &program,
-        &evaluator,
-        "the program is given a report that was not delivered",
-        delivery(&format!("{report}Edited.\n")),
-    )
-    .await?;
-    ob.run.check(
-        "the program refuses a report that was not delivered",
-        other.get("signed").is_none()
-            && other["error"]
-                .as_str()
-                .is_some_and(|e| e.contains("records no delivery of this report")),
-        other.to_string(),
-    );
     let output = judge(
         &mut ob,
         &program,
         &evaluator,
-        "the program checks the delivery, judges the report and signs its verdict",
+        "the program checks the delivery, fetches the named page, and signs its verdict",
+        &spec,
         delivery(&report),
     )
     .await?;
-
-    let (signed, review_hash) = check_judgement(&mut ob, &output, &evaluator, contributor, hash);
+    let (signed, review_hash) =
+        check_judgement(&mut ob, &output, &spec, &evaluator, contributor, hash);
 
     let before = ob.balances().await?;
     let tx = ob
@@ -1712,6 +1777,18 @@ async fn outlayer_evaluator(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     );
     let expected = ob.expected_split(AMOUNT);
     ob.check_payouts(&tx, &before, &expected);
+
+    // What the program refuses does not depend on the verdict, which has a
+    // deadline, so it is asked afterwards.
+    refusals(
+        &mut ob,
+        &program,
+        &evaluator,
+        &spec,
+        delivery(&format!("{report}Edited.\n")),
+        delivery(&report),
+    )
+    .await?;
 
     let closer = a.deployer.clone();
     ob.close_after_deadline(&closer).await?;

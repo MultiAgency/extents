@@ -39,25 +39,54 @@ pub fn spec() -> Spec {
     }
 }
 
-/// The phrase the `outlayer-evaluator` program looks for in a report.
-pub const OUTLAYER_PHRASE: &str = "## Agenda";
+/// A merged pull request of this repository, by GitHub's API URL: the
+/// evidence of the `outlayer-evaluator` scenario.
+pub const MERGED_PULL: &str = "https://api.github.com/repos/MultiAgency/extents/pulls/13";
+/// The label of the report's line that cites it.
+pub const PULL_LABEL: &str = "Pull request API";
 
-/// The spec of the `outlayer-evaluator` scenario: the one criterion its
-/// evaluator program checks, and that program's sha256.
-pub fn outlayer_spec(evaluator_build: [u8; 32]) -> Spec {
+/// The spec of the `outlayer-evaluator` scenario, and the sha256 of the
+/// program that judges it: `pull` is merged.
+///
+/// `pull-request` names the evidence in the terms. The program fetches the
+/// page a report cites for `merged` only if it is that exact URL.
+pub fn outlayer_spec(evaluator_build: [u8; 32], pull: &str) -> Spec {
+    let criterion = |id: &str, description: &str, check| Criterion {
+        id: id.into(),
+        description: description.into(),
+        check,
+    };
+    let contains = |phrase: &str| Check::Contains {
+        phrase: phrase.into(),
+        absent: false,
+    };
     Spec {
         v: VERSION,
-        statement: "Probe of an evaluator that is a program: one contributor delivers a \
-                    report, and the program at `evaluator_build` judges it."
-            .into(),
-        criteria: vec![Criterion {
-            id: "agenda".into(),
-            description: "The report has an Agenda section".into(),
-            check: Check::Contains {
-                phrase: OUTLAYER_PHRASE.into(),
-                absent: false,
-            },
-        }],
+        statement: format!(
+            "The pull request at {pull} is merged. The contributor's report cites that URL \
+             on a `{PULL_LABEL}:` line."
+        ),
+        criteria: vec![
+            criterion(
+                "pull-request",
+                "The report cites the pull request's GitHub API URL",
+                contains(pull),
+            ),
+            criterion(
+                "merged",
+                "GitHub's API reports the cited pull request as merged",
+                Check::LiveUrl {
+                    label: PULL_LABEL.into(),
+                    // GitHub serves compact JSON: no space after the colon.
+                    must_contain: Some("\"merged\":true".into()),
+                },
+            ),
+            criterion(
+                "summary",
+                "The report has a Summary section",
+                contains("## Summary"),
+            ),
+        ],
         max_report_bytes: None,
         evaluator_build: Some(evaluator_build),
     }

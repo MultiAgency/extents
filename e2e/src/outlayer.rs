@@ -1,7 +1,7 @@
 //! `OutLayer` on testnet: a WASI program run in its TEE workers, requested on
 //! chain. The request's transaction returns what the program printed.
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, ensure};
 use borsh::BorshSerialize;
@@ -18,23 +18,27 @@ const CONTRACT: &str = "outlayer.testnet";
 /// `https://<host>/<sender>/<receiver>/<path>`.
 const FASTFS_METHOD: &str = "__fastdata_fastfs";
 const FASTFS_HOST: &str = "test.fastfs.io";
-/// A larger file is uploaded in parts, which this does not do.
-const FASTFS_MAX: usize = 1 << 20;
+/// The most of a file one call carries.
+const FASTFS_PART: usize = 1 << 20;
+/// Parts of one upload share a nonce: seconds since this moment, as
+/// `OutLayer`'s CLI counts them.
+const FASTFS_EPOCH: u64 = 1_769_376_240;
 /// How long `FastFS` may take to index an upload.
 const FASTFS_WAIT: Duration = Duration::from_mins(5);
+/// How long a worker may take to answer a request.
+const RUN_WAIT: Duration = Duration::from_mins(5);
 /// The output's storage, paid in advance; what a run does not use returns.
-const OUTPUT_BYTES: usize = 4096;
+const OUTPUT_BYTES: usize = 8192;
 
+/// One part of a file, at `offset` of `full_size` bytes.
 #[derive(BorshSerialize)]
-struct FastfsFile<'a> {
+struct FastfsPart<'a> {
     relative_path: &'a str,
-    content: Option<FastfsContent<'a>>,
-}
-
-#[derive(BorshSerialize)]
-struct FastfsContent<'a> {
+    offset: u32,
+    full_size: u32,
     mime_type: &'a str,
-    content: &'a [u8],
+    content_chunk: &'a [u8],
+    nonce: u32,
 }
 
 /// A wasm where `OutLayer`'s workers can fetch it, run directly by its URL:
@@ -47,7 +51,6 @@ pub struct Program {
 impl Program {
     /// Uploads `wasm` to `FastFS` as `uploader`, unless it is already served.
     pub async fn publish(chain: &Chain, uploader: &AccountId, wasm: &[u8]) -> Result<Self> {
-        ensure!(wasm.len() <= FASTFS_MAX, "wasm is over 1 MiB");
         let sha256: [u8; 32] = Sha256::digest(wasm).into();
         let path = format!("{}.wasm", hex::encode(sha256));
         let program = Self {
@@ -59,28 +62,40 @@ impl Program {
             return Ok(program);
         }
 
-        // The file's variant, then the file.
-        let mut args = vec![0u8];
-        FastfsFile {
-            relative_path: &path,
-            content: Some(FastfsContent {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)?
+            .as_secs()
+            .saturating_sub(FASTFS_EPOCH);
+        let parts = wasm.chunks(FASTFS_PART);
+        let count = parts.len();
+        for (i, part) in parts.enumerate() {
+            // The variant of a file in parts, then the part.
+            let mut args = vec![1u8];
+            FastfsPart {
+                relative_path: &path,
+                offset: u32::try_from(i * FASTFS_PART)?,
+                full_size: u32::try_from(wasm.len())?,
                 mime_type: "application/wasm",
-                content: wasm,
-            }),
+                content_chunk: part,
+                nonce: u32::try_from(nonce)?,
+            }
+            .serialize(&mut args)?;
+            // Nothing implements the method: the call fails, and FastFS
+            // indexes its arguments anyway. One gas keeps the failure cheap.
+            chain
+                .call_raw(
+                    &format!(
+                        "upload the program to FastFS, part {} of {count} (fails by design)",
+                        i + 1
+                    ),
+                    uploader,
+                    &CONTRACT.parse()?,
+                    FASTFS_METHOD,
+                    args,
+                    Gas::from_gas(1),
+                )
+                .await?;
         }
-        .serialize(&mut args)?;
-        // Nothing implements the method: the call fails, and FastFS indexes
-        // its arguments anyway. One gas keeps the failure cheap.
-        chain
-            .call_raw(
-                "upload the program to FastFS (fails by design)",
-                uploader,
-                &CONTRACT.parse()?,
-                FASTFS_METHOD,
-                args,
-                Gas::from_gas(1),
-            )
-            .await?;
 
         let waited = tokio::time::Instant::now();
         while !program.served().await {
@@ -119,9 +134,9 @@ impl Program {
     ) -> Result<(Tx, Value)> {
         let contract: AccountId = CONTRACT.parse()?;
         let limits = json!({
-            "max_instructions": 1_000_000_000u64,
+            "max_instructions": 10_000_000_000u64,
             "max_memory_mb": 128,
-            "max_execution_seconds": 10,
+            "max_execution_seconds": 60,
         });
         let input = input.to_string();
         let cost: String = chain
@@ -154,7 +169,7 @@ impl Program {
             gas: Gas::from_tgas(300),
             deposit: NearToken::from_yoctonear(cost.parse()?),
         };
-        let tx = chain.call(label, caller, &call).await?;
+        let tx = chain.call_slow(label, caller, &call, RUN_WAIT).await?;
         let output = tx
             .value
             .clone()

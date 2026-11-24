@@ -91,18 +91,28 @@ cargo run -p extents-e2e -- run deposit achieved failed expired auth-call max ma
 | `release` | The sponsor releases the payment itself, without the evaluator. Its achieved verdict is refused until both contributors have delivered, then resolves as `released` and pays the split exactly. |
 | `cancel` | The sponsor's cancel is refused while a contributor is committed. Once it withdraws (a `withdrawn` event), the cancel returns everything to the sponsor as `cancelled`, and a later commitment is refused. |
 | `withdraw` | `c2` backs `c1`. `c1` commits and withdraws before `commit_by`; after it, `c2` takes the empty slot, and `c1` can neither take it back nor withdraw it. Delivered work cannot be withdrawn, and the achieved verdict pays `c2` the slot's share. |
-| `outlayer-evaluator` | The evaluator is a program. [`outlayer-evaluator`](outlayer-evaluator) is a WASI module whose manifest declares an ed25519 key bound to the exact build and to no caller; OutLayer issues it only inside its TEE workers, and its implicit account is `Params.evaluator`. The scenario uploads the wasm to FastFS, asks the program for its account from two callers (the same one), and sets the spec's `evaluator_build` to the wasm's sha256. One contributor commits and delivers a report. Another account's verdict is `unauthorized`. Given the delivery's transaction, the program reads it through the worker's RPC and refuses a report whose hash was not delivered. For the delivered report it judges its one criterion, writes a short review, and signs an `auth_call` attest intent in the Verifier's `raw_ed25519` form with the review's hash, which the deployer relays: the objective resolves `achieved` and pays. No key is registered on the Verifier. Needs the program built (below). A probe: one criterion, the review is the program's own format rather than an `extents-spec` review, and it trusts the worker's RPC. |
+| `outlayer-evaluator` | The evaluator is a program, and the evidence is a merged pull request. [`outlayer-evaluator`](outlayer-evaluator) is a WASI module whose manifest declares an ed25519 key bound to the exact build and to no caller; OutLayer issues it only inside its TEE workers, and its implicit account is `Params.evaluator`. The scenario uploads the wasm to FastFS, asks the program for its account from two callers (the same one), and sets the spec's `evaluator_build` to the wasm's sha256. The spec names a pull request's GitHub API URL in a `contains` criterion and asks, with `live_url`, that the cited page show `"merged":true`. One contributor commits and delivers a report citing that URL. Another account's verdict is `unauthorized`. The program refuses a spec the terms do not commit to, and a report whose hash was not delivered. For the delivered report it reads the delivery through the worker's RPC, fetches the page only because the spec names that exact URL, writes an `extents-spec` review with the response's hash as evidence, and signs an `auth_call` attest intent in the Verifier's `raw_ed25519` form, which the deployer relays: the objective resolves `achieved` and pays. No key is registered on the Verifier. Needs the program built (below). A probe: two kinds of criterion, and it trusts the worker's RPC. |
 | `accepted`  | `acceptance_window_secs` is 180 s. Both contributors commit and deliver; the last delivery's `attest_by` falls after the deadline. `ob_close` is refused after the deadline while the window is open, and after it resolves as `accepted` with no review, paying the 70/30 split. Needs a contract published after `ob_deliver` was added. |
 
-`outlayer-evaluator` needs its program built for `wasm32-wasip2`. The key
-belongs to the build, so a rebuild that changes the wasm's sha256 is another
-evaluator account:
+`outlayer-evaluator` needs its program built. The key belongs to the build, so
+the wasm's sha256 decides the evaluator's account. The build is reproducible:
+it runs in a pinned image, and anyone gets the same bytes from the same source
+(needs Docker):
 
 ```sh
-rustup target add wasm32-wasip2
-(cd e2e/outlayer-evaluator && cargo build --release)
-# target/outlayer-evaluator/wasm32-wasip2/release/outlayer-evaluator.wasm
+e2e/outlayer-evaluator/build.sh
+# target/outlayer-evaluator/reproducible/outlayer-evaluator.wasm, and its sha256
 ```
+
+GitHub has served the same API request both as compact JSON and with
+whitespace between tokens, minutes apart, so a substring test on its response
+passes or not by chance. The program matches a JSON page in its compact form
+however it was served, so the phrase is written with no space after the colon.
+GitHub also refuses a request with no `User-Agent`, which the program sends.
+
+[`outlayer-attestation`](outlayer-attestation) checks the attestation of any of
+these runs: that an approved build in a genuine TDX enclave ran exactly this
+wasm on this input and gave this output.
 
 Each run through OutLayer (`outlayer.testnet`) is a `request_execution` paid in
 NEAR by its caller, and returns the program's output as the transaction's
