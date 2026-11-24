@@ -7,6 +7,8 @@ import { isIP, type LookupFunction } from "node:net";
 import { Budget } from "./budget.ts";
 
 export const MAX_EVIDENCE_BYTES = 2 * 1024 * 1024;
+/** Who is fetching and where to ask. Some hosts refuse a request that names no client (GitHub's API answers 403). */
+const USER_AGENT = "extents-evaluator (+https://github.com/MultiAgency/extents)";
 // Queue before charging admission, so a valid run never rejects its own later criteria.
 const requests = new Budget(10_000, 8);
 let active = 0;
@@ -123,7 +125,7 @@ async function fetchEvidence(raw: string | URL | Request, init?: RequestInit): P
           signal,
           lookup: publicLookup,
           agent: false,
-          headers: { "accept-encoding": "identity" },
+          headers: { "accept-encoding": "identity", "user-agent": USER_AGENT },
         },
         (incoming) => {
           const status = incoming.statusCode ?? 502;

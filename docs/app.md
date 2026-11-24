@@ -125,7 +125,7 @@ Every API request holds one of four concurrent response slots until its response
 (an agent run, checks, an evaluation or review, and a deploy) also spends one
 of 200 per hour, charged only once its input is valid; reads spend nothing. The body limit is 256 KiB;
 agent runs have 12 steps, a two-minute deadline and 4,096 output tokens per model step. Production deployment calls
-share a separate budget of 10 per hour and one concurrent operation. Evidence transport permits eight concurrent
+share a separate budget of 10 per hour and one concurrent operation. Evidence transport names itself in a fixed `User-Agent`, permits eight concurrent
 connections and 10,000 requests per hour, pins public DNS at connection time, validates redirects and caps streamed
 bodies at 2 MiB. Model outages, ambiguous answers, unavailable evidence and archive failures produce skipped checks. Only a host the contributor cited and that stays unreachable can later fail a check; an archive failure, or the server's own fetch budget running out, is the evaluator's, so it never does.
 

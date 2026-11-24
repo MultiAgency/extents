@@ -79,6 +79,14 @@ test("every redirect hostname is checked at its own connection boundary", async 
   expect(connected).toHaveLength(1);
 });
 
+test("every request, redirects included, names the evaluator in its User-Agent", async () => {
+  responses = [{ status: 302, location: "https://example.net/moved" }, { status: 200, body: Buffer.from("evidence") }];
+  await evidenceFetch("https://example.org/report");
+  // pinned here because hosts may serve by it: changing it changes what the evaluator sees
+  const named = "extents-evaluator (+https://github.com/MultiAgency/extents)";
+  expect(mocks.request.mock.calls.map(([, options]) => options.headers["user-agent"])).toEqual([named, named]);
+});
+
 test("the transport stops an oversized body before creating a buffered response", async () => {
   responses = [{ status: 200, body: Buffer.alloc(MAX_EVIDENCE_BYTES + 1) }];
   await expect(evidenceFetch("https://example.org/report")).rejects.toThrow(/exceeds 2 MB/);
