@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "statement": "Fix issue #123 in the sponsor's repository: a pull request that closes it is merged. The contributor's report cites the pull request's GitHub API URL, https://api.github.com/repos/<owner>/<repo>/pulls/<number>.",
+  "criteria": [
+    {
+      "id": "merged",
+      "description": "GitHub's API reports the cited pull request as merged",
+      "check": { "kind": "live_url", "label": "Pull request API", "must_contain": "\"merged\": true" }
+    },
+    {
+      "id": "summary",
+      "description": "The report has a Summary section",
+      "check": { "kind": "contains", "phrase": "## Summary", "absent": false }
+    }
+  ]
+}

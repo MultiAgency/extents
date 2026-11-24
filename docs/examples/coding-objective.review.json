@@ -1,0 +1,32 @@
+{
+  "v": 1,
+  "objective": "example-objective.testnet",
+  "spec_hash": "a94be1a0cd0099ef24a96eeab8372451606763025197bdc10814b6aeac43b0cb",
+  "deliverables": [
+    {
+      "contributor": "contributor.testnet",
+      "sha256": "84eac20335fcf3fe7676fe7f58207be0a381715bedac4421f39fafc65611b92a"
+    }
+  ],
+  "results": [
+    {
+      "criterion_id": "merged",
+      "outcome": "pass",
+      "detail": "https://api.github.com/repos/MultiAgency/extents/pulls/13 loads and shows \"\"merged\": true\"",
+      "evidence": [
+        {
+          "url": "https://api.github.com/repos/MultiAgency/extents/pulls/13",
+          "sha256": "38c2bc7e07c15d2f56e9ef333ffbad913caa954e5037183159ea226a79cd3cb9"
+        }
+      ]
+    },
+    {
+      "criterion_id": "summary",
+      "outcome": "pass",
+      "detail": "\"## Summary\" found",
+      "evidence": []
+    }
+  ],
+  "llm_calls": [],
+  "verdict": "achieved"
+}
