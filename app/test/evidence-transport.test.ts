@@ -1,12 +1,13 @@
 /** Exercise the socket boundary with DNS and HTTP mocked; no private network is contacted. */
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ request: vi.fn(), lookup: vi.fn() }));
 vi.mock("node:http", () => ({ request: mocks.request }));
 vi.mock("node:https", () => ({ request: mocks.request }));
 vi.mock("node:dns", () => ({ lookup: mocks.lookup }));
+import { runCheck } from "../src/server/checks.ts";
 import { evidenceFetch, MAX_EVIDENCE_BYTES } from "../src/server/evidence-fetch.ts";
 
 const connected: { host: string; address: string }[] = [];
@@ -18,6 +19,7 @@ beforeEach(() => {
   mocks.lookup.mockImplementation((_hostname, _options, callback) => callback(null, [{ address: "8.8.8.8", family: 4 }]));
   mocks.request.mockImplementation((target, options, respond) => {
     const request = new EventEmitter() as EventEmitter & { end(): void };
+    options.signal?.addEventListener("abort", () => request.emit("error", options.signal.reason), { once: true });
     request.end = () => {
       // Emulate the socket honoring the supplied lookup function, as verified separately in Bun.
       options.lookup(target.hostname, { all: true }, (error: Error | null, addresses: { address: string }[]) => {
@@ -107,4 +109,33 @@ test("a valid seven-criterion evaluation queues all seventy healthy requests", a
   const results = await Promise.all(spec.criteria.map((c) => runCheck(c, spec, { text }, { fetch: evidenceFetch as typeof fetch })));
   expect(results.map((r) => r.outcome)).toEqual(Array(7).fill("pass"));
   expect(connected).toHaveLength(70);
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+test("waiting for a connection slot is not charged to the cited page's timeout", async () => {
+  // Eight fetches to a host that never answers hold every slot until their callers abort them.
+  mocks.lookup.mockImplementation((hostname, _options, callback) => {
+    if (hostname !== "slow.example.org") callback(null, [{ address: "8.8.8.8", family: 4 }]);
+  });
+  const timeouts = vi.spyOn(AbortSignal, "timeout");
+  const holders = Array.from({ length: 8 }, () => new AbortController());
+  const held = holders.map((h) => evidenceFetch("https://slow.example.org/", { signal: h.signal }).catch(() => undefined));
+  await vi.waitFor(() => expect(timeouts).toHaveBeenCalledTimes(8));
+
+  const criterion = { id: "pr", description: "d", check: { kind: "live_url", label: "PR", must_contain: "ok" } } as const;
+  const spec = { v: 1, statement: "s", criteria: [criterion] };
+  responses = [{ status: 200, body: Buffer.from("ok") }];
+  const queued = runCheck(criterion, spec, { text: "PR: https://fast.example.org/page" }, { fetch: evidenceFetch as typeof fetch });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // The queued page has no clock yet: nothing but the eight holders' timeouts exists.
+  expect(timeouts).toHaveBeenCalledTimes(8);
+
+  holders[0]!.abort();
+  const result = await queued;
+  expect(result.outcome).toBe("pass");
+  // Its own clock started when it got the slot.
+  expect(timeouts).toHaveBeenCalledTimes(9);
+  holders.forEach((h) => h.abort());
+  await Promise.all(held);
 });

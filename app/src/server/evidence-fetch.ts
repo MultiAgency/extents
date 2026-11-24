@@ -12,16 +12,20 @@ const requests = new Budget(10_000, 8);
 let active = 0;
 const waiting = new Set<() => void>();
 
-async function connection(signal: AbortSignal): Promise<() => void> {
-  signal.throwIfAborted();
+/** How long one cited page may take once it has a connection slot. The wait for a slot is not charged to it. */
+const PAGE_TIMEOUT_MS = 10_000;
+
+/** A free slot, waiting (as long as the caller's signal allows) for one of the 8 that every evaluation shares. */
+async function connection(signal: AbortSignal | undefined): Promise<() => void> {
+  signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
     const abort = () => {
       waiting.delete(enter);
-      reject(signal.reason);
+      reject(signal!.reason);
     };
     const enter = () => {
       waiting.delete(enter);
-      signal.removeEventListener("abort", abort);
+      signal?.removeEventListener("abort", abort);
       active++;
       let released = false;
       resolve(() => {
@@ -34,7 +38,7 @@ async function connection(signal: AbortSignal): Promise<() => void> {
     if (active < 8) enter();
     else {
       waiting.add(enter);
-      signal.addEventListener("abort", abort, { once: true });
+      signal?.addEventListener("abort", abort, { once: true });
     }
   });
 }
@@ -84,9 +88,15 @@ export const publicLookup: LookupFunction = (hostname, options, callback) => {
   });
 };
 
+/**
+ * Fetches a cited page. The page's own clock (`PAGE_TIMEOUT_MS`) starts once it has a connection slot, not when it
+ * joins the queue: waiting behind other evaluations' fetches says nothing about the cited host. The caller's signal
+ * bounds both the wait and the fetch.
+ */
 export async function evidenceFetch(raw: string | URL | Request, init?: RequestInit): Promise<Response> {
-  const signal = init?.signal ?? AbortSignal.timeout(10_000);
-  const close = await connection(signal);
+  const caller = init?.signal ?? undefined;
+  const close = await connection(caller);
+  const signal = caller ? AbortSignal.any([caller, AbortSignal.timeout(PAGE_TIMEOUT_MS)]) : AbortSignal.timeout(PAGE_TIMEOUT_MS);
   try {
     const release = requests.acquire();
     try {
