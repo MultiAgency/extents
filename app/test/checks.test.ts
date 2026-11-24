@@ -4,6 +4,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { describe, expect, test } from "vitest";
 
 import { labelled, publicUrl, runCheck, type CheckDeps, type Deliverable } from "../src/server/checks.ts";
+import { BudgetError } from "../src/server/budget.ts";
 import type { Criterion, Spec } from "../src/shared/spec.ts";
 
 const PAGES: Record<string, { body: string; type?: string; status?: number }> = {
@@ -90,6 +91,29 @@ describe("checks", () => {
     const down = crit({ kind: "live_url", label: "Missing page" });
     const missing: Deliverable = { text: "Missing page: https://example.org/nowhere" };
     expect(await runCheck(down, spec(down), missing, archived)).toMatchObject({ outcome: "skipped", unavailable: true });
+  });
+
+  test("a spent service budget is an error for the run, never an unreachable host", async () => {
+    // the evaluator's own ceiling, as evidenceFetch reports it: the contributor's page is never requested
+    const spent: CheckDeps = {
+      ...deps,
+      fetch: (async () => {
+        throw new BudgetError();
+      }) as unknown as typeof fetch,
+    };
+    const checks: Criterion["check"][] = [
+      { kind: "live_url", label: "Event page", must_contain: "New York" },
+      { kind: "sources", min: 1, figures: false },
+      { kind: "media", kinds: ["image"], min: 1 },
+    ];
+    for (const check of checks) {
+      const c = crit(check);
+      await expect(runCheck(c, spec(c), REPORT, spent)).rejects.toThrow(/Service budget reached/);
+    }
+    // any other failure to load is still the contributor's: unchanged
+    const down = crit({ kind: "live_url", label: "Missing page" });
+    const missing: Deliverable = { text: "Missing page: https://example.org/nowhere" };
+    expect(await runCheck(down, spec(down), missing, deps)).toMatchObject({ outcome: "skipped", unavailable: true });
   });
 
   test("numeric_match within bounds", async () => {

@@ -127,7 +127,7 @@ of 200 per hour, charged only once its input is valid; reads spend nothing. The 
 agent runs have 12 steps, a two-minute deadline and 4,096 output tokens per model step. Production deployment calls
 share a separate budget of 10 per hour and one concurrent operation. Evidence transport permits eight concurrent
 connections and 10,000 requests per hour, pins public DNS at connection time, validates redirects and caps streamed
-bodies at 2 MiB. Model outages, ambiguous answers, unavailable evidence and archive failures produce skipped checks. Only a host the contributor cited and that stays unreachable can later fail a check; an archive failure is the evaluator's, so it never does.
+bodies at 2 MiB. Model outages, ambiguous answers, unavailable evidence and archive failures produce skipped checks. Only a host the contributor cited and that stays unreachable can later fail a check; an archive failure, or the server's own fetch budget running out, is the evaluator's, so it never does.
 
 Chain reads use finalized state, a 15-second deadline and a 4 MiB response cap. Run cancellation reaches chain and
 evidence requests; closing an event stream cancels its work. Evidence waits for a connection before admission, and

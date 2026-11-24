@@ -5,6 +5,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { describe, expect, test, vi } from "vitest";
 
 import { createApp } from "../src/server/app.ts";
+import { evidenceFetch } from "../src/server/evidence-fetch.ts";
 import type { CheckDeps } from "../src/server/checks.ts";
 import type { Chain } from "../src/server/tools.ts";
 import { reportHash } from "../src/shared/review.ts";
@@ -316,6 +317,38 @@ describe("/api/evaluate", () => {
     const refused = await check(tight, { objective: OBJECTIVE });
     expect(refused.error ?? refused.results.page?.detail).toMatch(/share of the evidence archive/);
     expect(refused.summary?.review).toBeUndefined();
+  });
+  test("a spent evidence-fetch budget pauses the check and never ages into a contributor's failure", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-20T10:00:00Z"));
+      // the real transport, with its process-wide hourly budget used up
+      for (let i = 0; i < 10_000; i++) await evidenceFetch("http://localhost/").catch(() => {});
+      const agent = client(
+        { params: p, spec: SPEC },
+        {
+          state: { delivered: 3 },
+          delivered: BOTH,
+          path: "/api/evaluate",
+          fetch: evidenceFetch as never,
+          judge: async () => ({ answer: true, detail: "x", call: { ...CALL, answer: true } }),
+        },
+      );
+      const firstRun = await check(agent, { objective: OBJECTIVE });
+      expect(firstRun.results.page).toMatchObject({ outcome: "skipped" });
+      expect(firstRun.results.page!.detail).toMatch(/Service budget reached/);
+      expect(firstRun.results.page!.detail).not.toMatch(/Recorded|still unreachable/);
+      expect(firstRun.summary.review).toBeUndefined();
+
+      // well past the retry window: an unreachable host would fail by now; the evaluator's own budget must not
+      vi.setSystemTime(new Date("2026-11-20T10:11:00Z"));
+      const later = await check(agent, { objective: OBJECTIVE });
+      expect(later.results.page).toMatchObject({ outcome: "skipped" });
+      expect(later.results.page!.detail).not.toMatch(/still unreachable/);
+      expect(later.summary.review).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
   test("a failing evidence archive pauses the check and never ages into a contributor's failure", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
