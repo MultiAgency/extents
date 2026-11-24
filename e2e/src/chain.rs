@@ -174,6 +174,25 @@ impl Chain {
         self.send(label, signer, tx).await
     }
 
+    /// Sends `args`, as they are, to `receiver`'s `method`, as `signer`.
+    pub async fn call_raw(
+        &self,
+        label: &str,
+        signer: &AccountId,
+        receiver: &AccountId,
+        method: &str,
+        args: Vec<u8>,
+        gas: Gas,
+    ) -> Result<Tx> {
+        let tx = self
+            .as_signer(signer)?
+            .call(receiver.clone(), method)
+            .args_raw(args)
+            .gas(gas)
+            .finish();
+        self.send(label, signer, tx).await
+    }
+
     pub async fn transfer(
         &self,
         label: &str,

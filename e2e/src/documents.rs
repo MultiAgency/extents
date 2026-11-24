@@ -39,6 +39,30 @@ pub fn spec() -> Spec {
     }
 }
 
+/// The phrase the `outlayer-evaluator` program looks for in a report.
+pub const OUTLAYER_PHRASE: &str = "## Agenda";
+
+/// The spec of the `outlayer-evaluator` scenario: the one criterion its
+/// evaluator program checks, and that program's sha256.
+pub fn outlayer_spec(evaluator_build: [u8; 32]) -> Spec {
+    Spec {
+        v: VERSION,
+        statement: "Probe of an evaluator that is a program: one contributor delivers a \
+                    report, and the program at `evaluator_build` judges it."
+            .into(),
+        criteria: vec![Criterion {
+            id: "agenda".into(),
+            description: "The report has an Agenda section".into(),
+            check: Check::Contains {
+                phrase: OUTLAYER_PHRASE.into(),
+                absent: false,
+            },
+        }],
+        max_report_bytes: None,
+        evaluator_build: Some(evaluator_build),
+    }
+}
+
 /// The hash a contributor delivers with `ob_deliver`, and the review lists
 /// as its deliverable.
 pub fn deliverable(contributor: &str) -> [u8; 32] {

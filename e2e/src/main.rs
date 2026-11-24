@@ -8,6 +8,7 @@ mod chain;
 mod dao;
 mod documents;
 mod intent;
+mod outlayer;
 mod report;
 mod scenarios;
 
@@ -82,6 +83,15 @@ pub struct Config {
         default_value = "target/near/extents_objective/extents_objective.wasm"
     )]
     pub wasm: PathBuf,
+
+    /// The evaluator program of the `outlayer-evaluator` scenario, built
+    /// from `e2e/outlayer-evaluator`.
+    #[arg(
+        long,
+        env = "E2E_OUTLAYER_WASM",
+        default_value = "target/outlayer-evaluator/wasm32-wasip2/release/outlayer-evaluator.wasm"
+    )]
+    pub outlayer_wasm: PathBuf,
 
     /// Where scenario results are written.
     #[arg(long, env = "E2E_RESULTS", default_value = "e2e/results")]
