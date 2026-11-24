@@ -13,8 +13,8 @@ what does not. It is a prototype and a findings write-up, not a spec change. The
    page's embedded configuration (feature-flag names such as `…pull_request_merged_trigger`).
 2. **The API response is usable.** `https://api.github.com/repos/<owner>/<repo>/pulls/<n>` is JSON with `"merged": true`
    for a merged pull request and `"merged": false` otherwise. With `must_contain: "\"merged\": true"` the existing
-   `live_url` check separates the three cases correctly, when the request carries a `User-Agent` (see
-   [What was run](#what-was-run)).
+   `live_url` check separates the three cases correctly, but only while GitHub serves the JSON with that spacing, and it
+   does not always (see [What was run](#what-was-run)).
 3. **It is still only as good as where the contributor points the check.** Nothing makes the contributor cite
    `api.github.com`. A page the contributor hosts that contains `"merged": true` passes in exactly the same way
    ([#5](https://github.com/MultiAgency/extents/issues/5)).
@@ -39,11 +39,16 @@ the Rust crate.
 The real `runCheck` with the real evidence transport (`evidenceFetch`), on 2026-11-24, with the report citing each
 pull request's API URL. The script was run with Bun (`bun script.ts`, Bun 1.3.14), not Node.
 
-**Runtime matters.** `evidenceFetch` sets no `User-Agent`. Bun's `node:https` adds a default one, so GitHub's API
-answered 200. Node (v24.22.0) sends none, and GitHub answers `403 Request forbidden by administrative rules`; the check
-is then `fail`, "did not load". I confirmed both with the same request on 2026-11-24. The app server runs on Bun
-(`bun src/server/index.ts`), so the results below hold there, but not under Node, for example in a test that runs the real
-transport. The web-page results in finding 1 do not depend on this.
+**The result depended on two things.** The web-page results in finding 1 depend on neither.
+
+- *The runtime.* At the time `evidenceFetch` set no `User-Agent`, and GitHub's API refuses such a request with
+  `403 Request forbidden by administrative rules`, so the check is `fail`, "did not load". Bun 1.3.14's `node:https`
+  added a default one and got 200; Bun 1.4.2 and Node (v24.22.0) send none and got 403. The transport has named itself
+  since [#33](https://github.com/MultiAgency/extents/issues/33), so this no longer depends on the runtime.
+- *GitHub's formatting.* The same request has been answered both as `"merged": true` and as `"merged":true`. Later the
+  same day, with the transport that names itself, the criterion as written failed three times out of three on the
+  merged pull request, and passed three times out of three with the compact spelling. A substring test on JSON depends
+  on how the server formats it.
 
 | Pull request | State | Result of `merged` |
 | --- | --- | --- |
@@ -95,8 +100,8 @@ Option 1 is the lightest and applies to any third-party source. Option 2 is the 
 ## Limits
 
 - Anonymous requests to `api.github.com` are rate limited by GitHub; an evaluator would need to account for that.
-- `evidenceFetch` sends no `User-Agent`, which GitHub's API refuses; sending one would make the API run work under Node
-  as well. That is a separate change and is not made here.
+- `must_contain` on JSON matches the server's formatting, not the value: the example's phrase passes or fails with
+  GitHub's spacing (see [What was run](#what-was-run)).
 - A merged pull request shows that a change landed, not that it is correct.
 - No testnet run (see above): the review is built and validated off chain. Attesting it and paying out needs a funded
   testnet objective, which needs the e2e tool's testnet account and a manual faucet step.
