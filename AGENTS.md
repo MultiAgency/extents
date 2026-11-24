@@ -12,9 +12,12 @@ scripts/check
 ```
 
 Its stages are the Rust format, clippy (native and wasm32 with `--features=contract`) and tests, the
-formal model's invariants (`contracts/objective/model`, with Quint), then, from `app`,
-`pnpm typecheck`, `pnpm test` and `pnpm test:e2e`. `--model-replay` adds the contract replaying the
-model's runs (slow). CI runs all of them, the replay included, but the sandbox.
+two crates outside the workspace (the tests of `e2e/outlayer-evaluator`, clippy on
+`e2e/outlayer-attestation`), the formal model's invariants (`contracts/objective/model`, with
+Quint), then, from `app`, `pnpm typecheck`, `pnpm test` and `pnpm test:e2e`. `--model-replay` adds
+the contract replaying the model's runs (slow), and `--evaluator-build` the evaluator's reproducible
+build against its recorded hash (needs Docker). CI runs all of them, the replay and that build
+included, but the sandbox.
 Browser tests start local Bun, mock-model and mock-chain servers. Live sandbox tests need Docker:
 `cargo nextest run -p extents-sandbox --run-ignored only` (`.config/nextest.toml` runs three
 at a time and stops a hung test after 20 minutes).
