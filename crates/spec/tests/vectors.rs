@@ -113,6 +113,10 @@ fn rejected_specs() {
         Error::NotNormalForm
     ));
     assert!(matches!(
+        rejected_spec("spec-unsupported-version.json"),
+        Error::Version(2)
+    ));
+    assert!(matches!(
         rejected_spec("spec-schema-draft-07.json"),
         Error::InvalidCheck { id, .. } if id == "attendance-json"
     ));
