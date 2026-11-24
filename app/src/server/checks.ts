@@ -7,6 +7,7 @@
 import { sha256Hex } from "../shared/jcs.ts";
 import { compileSchema, dataProblem } from "../shared/schema.ts";
 import { readCapped, withTimeout } from "./bounded.ts";
+import { BudgetError } from "./budget.ts";
 import { MAX_EVIDENCE_BYTES, publicUrl } from "./evidence-fetch.ts";
 import type { Criterion, Spec } from "../shared/spec.ts";
 import type { CheckResult, LlmCall } from "../shared/review.ts";
@@ -82,6 +83,9 @@ async function fetchPage(deps: CheckDeps, url: URL, raw: string): Promise<Loaded
     if (!body) return { unavailable: `${raw} exceeds the evidence size limit` };
     bytes = body;
   } catch (e) {
+    // The evaluator's own ceiling, not a host the contributor cited: like the archive failure below, it must reach the
+    // run as an error, never as an unreachable host, which the retry rule turns into a failure.
+    if (e instanceof BudgetError) throw e;
     return { unavailable: `${raw} did not load (${e instanceof Error ? e.message : String(e)})` };
   }
   // Outside the fetch's try: a failing archive is the evaluator's fault, not the contributor's. It must reach the
