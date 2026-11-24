@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use borsh::BorshSerialize;
 use extents_client::objective::Call;
 use near_kit::{AccountId, Gas, NearToken};
@@ -108,7 +108,8 @@ impl Program {
     }
 
     /// Runs the program on `input`, requested and paid for by `caller`.
-    /// Returns the request's transaction and the program's output.
+    /// Returns the request's transaction and the program's output, which is
+    /// `{"error": ..}` when the program refuses.
     pub async fn run(
         &self,
         chain: &Chain,
@@ -158,9 +159,6 @@ impl Program {
             .value
             .clone()
             .with_context(|| format!("{label}: no output; {:?}", tx.error))?;
-        if let Some(error) = output["error"].as_str() {
-            bail!("{label}: the program refused: {error}");
-        }
         Ok((tx, output))
     }
 }

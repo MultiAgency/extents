@@ -1538,14 +1538,14 @@ async fn program_account(ctx: &Ctx<'_>, run: &mut Run, program: &Program) -> Res
     Ok(answers[0].parse()?)
 }
 
-/// Has the program judge `report` for `ob`, and returns the intent it
-/// signed as `evaluator`: the one the client builds for `attestation`.
-async fn judged(
+/// Asks the program to judge `deliveries` for `ob` and sign its verdict as
+/// `evaluator`. Returns its output.
+async fn judge(
     ob: &mut Instance<'_, '_>,
     program: &Program,
     evaluator: &AccountId,
-    report: &str,
-    attestation: Attestation,
+    label: &str,
+    deliveries: Value,
 ) -> Result<Value> {
     let chain = ob.ctx.chain;
     let salt: String = chain
@@ -1553,35 +1553,68 @@ async fn judged(
         .await?;
     let deadline = chain.block_time().await? + OUTLAYER_INTENT_TTL;
     let nonce = Payload::new(evaluator, &chain.verifier, &salt, deadline, &[])?.nonce;
-    let expected = ob.objective.auth_call(Action::Attest(attestation));
+    // The gas an attestation's payouts need, whatever its verdict.
+    let attest = ob
+        .objective
+        .auth_call(Action::Attest(Verdict::Achieved.into()));
     let (tx, output) = program
         .run(
             chain,
-            "the program judges the report and signs its verdict",
+            label,
             &ob.ctx.accounts.deployer,
             &json!({
                 "operation": "attest",
                 "verifier": chain.verifier,
                 "objective": ob.objective.account(),
                 "params": ob.objective.params(),
-                "report": report,
+                "deliveries": deliveries,
                 "deadline": deadline,
                 "nonce": BASE64.encode(nonce),
-                "min_gas": expected["min_gas"],
+                "min_gas": attest["min_gas"],
             }),
         )
         .await?;
     record_run(ob.run, tx);
+    Ok(output)
+}
+
+/// Checks the program's `output` for `ob`: its review of `contributor`'s
+/// delivery of `hash`, and the intent it signed as `evaluator`. Returns that
+/// intent and the review's hash.
+fn check_judgement(
+    ob: &mut Instance<'_, '_>,
+    output: &Value,
+    evaluator: &AccountId,
+    contributor: &AccountId,
+    hash: [u8; 32],
+) -> (Value, [u8; 32]) {
+    // The review is the program's own record of what it judged.
+    let review = output["review"].as_str().unwrap_or_default();
+    let review_hash: [u8; 32] = Sha256::digest(review).into();
+    let review: Value = serde_json::from_str(review).unwrap_or_default();
+    ob.run.check(
+        "the program's review names the objective and the delivery it read",
+        review["objective"] == ob.objective.account().as_str()
+            && review["deliveries"][contributor.as_str()] == hex::encode(hash)
+            && review["verdict"] == "achieved",
+        review.to_string(),
+    );
+    ob.run.reviews.push(review);
+
+    let expected = ob.objective.auth_call(Action::Attest(Attestation {
+        verdict: Verdict::Achieved,
+        review_hash: Some(review_hash),
+    }));
     let signed = output["signed"].clone();
-    let payload: Value = serde_json::from_str(signed["payload"].as_str().unwrap_or_default())?;
+    let payload: Value =
+        serde_json::from_str(signed["payload"].as_str().unwrap_or_default()).unwrap_or_default();
     ob.run.check(
         "the program signed, as itself, the intent the client builds",
-        output["verdict"] == "achieved"
-            && payload["signer_id"] == evaluator.as_str()
+        payload["signer_id"] == evaluator.as_str()
             && with_parsed_msg(&payload["intents"][0]) == with_parsed_msg(&expected),
         payload.to_string(),
     );
-    Ok(signed)
+    (signed, review_hash)
 }
 
 async fn outlayer_evaluator(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
@@ -1628,19 +1661,43 @@ async fn outlayer_evaluator(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
         format!("tx {}, tx {}", committed.hash, delivered.hash),
     );
 
-    // The program attests the hash of the report it judged, in place of a review.
-    let attestation = Attestation {
-        verdict: Verdict::Achieved,
-        review_hash: Some(hash),
-    };
-    let refused = ob.attest(attestation).await?;
+    let refused = ob.attest(Verdict::Achieved.into()).await?;
     ob.check_refused(
         "another account's verdict is refused",
         &refused,
         "unauthorized",
     );
 
-    let signed = judged(&mut ob, &program, &evaluator, &report, attestation).await?;
+    // The program reads the delivery from the chain: only the report whose
+    // hash was delivered can be judged.
+    let delivery =
+        |report: &str| json!([{ "report": report, "tx": delivered.hash, "signer": contributor }]);
+    let other = judge(
+        &mut ob,
+        &program,
+        &evaluator,
+        "the program is given a report that was not delivered",
+        delivery(&format!("{report}Edited.\n")),
+    )
+    .await?;
+    ob.run.check(
+        "the program refuses a report that was not delivered",
+        other.get("signed").is_none()
+            && other["error"]
+                .as_str()
+                .is_some_and(|e| e.contains("records no delivery of this report")),
+        other.to_string(),
+    );
+    let output = judge(
+        &mut ob,
+        &program,
+        &evaluator,
+        "the program checks the delivery, judges the report and signs its verdict",
+        delivery(&report),
+    )
+    .await?;
+
+    let (signed, review_hash) = check_judgement(&mut ob, &output, &evaluator, contributor, hash);
 
     let before = ob.balances().await?;
     let tx = ob
@@ -1650,7 +1707,7 @@ async fn outlayer_evaluator(ctx: &Ctx<'_>, run: &mut Run) -> Result<()> {
     ob.run.check(
         "the program's verdict resolved the objective",
         resolved["data"]["outcome"] == "achieved"
-            && resolved["data"]["review_hash"] == hex::encode(hash),
+            && resolved["data"]["review_hash"] == hex::encode(review_hash),
         resolved["data"].to_string(),
     );
     let expected = ob.expected_split(AMOUNT);
