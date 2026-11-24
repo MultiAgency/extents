@@ -11,9 +11,8 @@ publish = false
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
-# Intel's quote verification, by Phala. OutLayer's register contract uses an
-# older line of it (0.3), whose HTTP client pulls in a DNS resolver with open
-# advisories.
+# Intel's quote verification, by Phala. Not 0.3: fetching collateral with it
+# pulls in a DNS resolver (hickory 0.25) that has open advisories.
 dcap-qvl = "0.7.1"
 hex = "0.4"
 # the client dcap-qvl uses, which brings its TLS

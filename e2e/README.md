@@ -104,11 +104,12 @@ e2e/outlayer-evaluator/build.sh
 # target/outlayer-evaluator/reproducible/outlayer-evaluator.wasm, and its sha256
 ```
 
-GitHub has served the same API request both as compact JSON and with
-whitespace between tokens, minutes apart, so a substring test on its response
-passes or not by chance. The program matches a JSON page in its compact form
-however it was served, so the phrase is written with no space after the colon.
-GitHub also refuses a request with no `User-Agent`, which the program sends.
+GitHub formats this response with or without whitespace from one request to
+the next ([what was run](../docs/coding-objective.md#what-was-run)), so a
+substring test on it passes or not by chance. The program matches a JSON page
+in its compact form however it was served, so the phrase is written with no
+space after the colon. GitHub also refuses a request with no `User-Agent`,
+which the program sends.
 
 [`outlayer-attestation`](outlayer-attestation) checks the attestation of any of
 these runs: that an approved build in a genuine TDX enclave ran exactly this

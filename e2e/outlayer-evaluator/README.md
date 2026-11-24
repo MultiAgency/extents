@@ -93,6 +93,10 @@ The bytes depend on the sources the program is built from: this directory, with 
 `Cargo.lock`, and [`crates/spec`](../../crates/spec) with the root `Cargo.toml` it takes its
 dependency versions from. A change to any of them is another program, with another account.
 
+At commit `0f7b0f8` it prints
+`6ff917139fd3ae85d0092ed9d5869e6c43a397a808a86804f729e27d258957f6`, from a clean export of
+that commit: the program of the testnet run recorded in [`../README.md`](../README.md).
+
 Measured on one machine (Apple silicon, Docker Desktop): two builds from checkouts at
 different paths gave identical bytes. The same sources built in the image's `linux/arm64`
 variant gave different bytes, so the architecture is part of the recipe. A plain

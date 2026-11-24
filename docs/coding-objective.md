@@ -97,6 +97,12 @@ Each option is a design for the maintainers to weigh; none is implemented here.
 
 Option 1 is the lightest and applies to any third-party source. Option 2 is the most direct for code.
 
+A fourth route has since been tried as an experiment, with no new field. The spec names the evidence's exact URL as the
+phrase of a `contains` criterion, and an evaluator program pinned by `evaluator_build` fetches the cited page only if it
+is that URL. It ran on testnet for pull request 13: the `outlayer-evaluator` scenario in
+[`e2e/README.md`](../e2e/README.md). It holds only for a URL known when the objective is launched, and only under that
+evaluator: the app's `live_url` check does not apply the rule.
+
 ## Limits
 
 - Anonymous requests to `api.github.com` are rate limited by GitHub; an evaluator would need to account for that.
@@ -104,4 +110,5 @@ Option 1 is the lightest and applies to any third-party source. Option 2 is the 
   GitHub's spacing (see [What was run](#what-was-run)).
 - A merged pull request shows that a change landed, not that it is correct.
 - No testnet run (see above): the review is built and validated off chain. Attesting it and paying out needs a funded
-  testnet objective, which needs the e2e tool's testnet account and a manual faucet step.
+  testnet objective, which needs the e2e tool's testnet account and a manual faucet step. A variant of this objective
+  has since been run on testnet, by the e2e's `outlayer-evaluator` scenario ([`e2e/README.md`](../e2e/README.md)).
