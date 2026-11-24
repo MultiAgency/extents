@@ -11,10 +11,13 @@ publish = false
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
-# Intel's quote verification, by Phala: the line OutLayer's register contract uses.
-dcap-qvl = "0.3.12"
+# Intel's quote verification, by Phala. OutLayer's register contract uses an
+# older line of it (0.3), whose HTTP client pulls in a DNS resolver with open
+# advisories.
+dcap-qvl = "0.7.1"
 hex = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# the client dcap-qvl uses, which brings its TLS
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
 serde_json = "1"
 sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

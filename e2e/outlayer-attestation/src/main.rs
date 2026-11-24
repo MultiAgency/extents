@@ -12,7 +12,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use dcap_qvl::{collateral::get_collateral_from_pcs, quote::Report, verify::ring::verify};
+use dcap_qvl::{
+    collateral::{CollateralClient, INTEL_PCS_URL},
+    quote::Report,
+    verify::verify,
+};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -131,9 +135,11 @@ async fn main() -> Result<()> {
 
     // The quote: signed up to Intel's root, on a current platform.
     let quote = BASE64.decode(text(&record, "tdx_quote")?)?;
-    let collateral = get_collateral_from_pcs(&quote)
+    let collateral = CollateralClient::with_default_http(INTEL_PCS_URL)
+        .map_err(|e| anyhow::anyhow!("{e:?}"))?
+        .fetch(&quote)
         .await
-        .context("collateral from Intel")?;
+        .map_err(|e| anyhow::anyhow!("collateral from Intel: {e:?}"))?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let verified = verify(&quote, &collateral, now).map_err(|e| anyhow::anyhow!("quote: {e:?}"))?;
     ensure!(
