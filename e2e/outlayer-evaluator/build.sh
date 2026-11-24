@@ -10,10 +10,18 @@
 # paths, and another architecture's compiler can give other bytes, so neither
 # is a hash someone else can check.
 #
-# Usage: ./build.sh
+# Usage: ./build.sh [--check]
 #   The wasm is written to target/outlayer-evaluator/reproducible/ at the
 #   repository's root, where the e2e's `outlayer-evaluator` scenario reads it.
+#   With --check, the build fails unless its hash is the one in wasm.sha256.
 set -euo pipefail
+
+check=false
+case "${1:-}" in
+  "") ;;
+  --check) check=true ;;
+  *) echo "usage: $0 [--check]" >&2; exit 2 ;;
+esac
 
 # rust:1.97.1-slim-bookworm, linux/amd64: the toolchain of rust-toolchain.toml.
 IMAGE="rust@sha256:39f68a3e8e3ff425f8945ffa91128e60ff930d53e17fbb5214e95824bdd46f1b"
@@ -34,8 +42,20 @@ docker run --rm --platform linux/amd64 \
     cp /build/wasm32-wasip2/release/outlayer-evaluator.wasm /out/outlayer-evaluator.wasm
   '
 
+wasm="$out/outlayer-evaluator.wasm"
 if command -v sha256sum >/dev/null; then
-  sha256sum "$out/outlayer-evaluator.wasm"
+  hash=$(sha256sum "$wasm" | cut -d' ' -f1)
 else
-  shasum -a 256 "$out/outlayer-evaluator.wasm"
+  hash=$(shasum -a 256 "$wasm" | cut -d' ' -f1)
+fi
+echo "$hash  $wasm"
+
+if $check; then
+  recorded=$(cat "$here/wasm.sha256")
+  if [ "$hash" != "$recorded" ]; then
+    echo "not the hash recorded in e2e/outlayer-evaluator/wasm.sha256: $recorded" >&2
+    echo "If the program's sources changed on purpose, record the new hash there:" >&2
+    echo "it is another program, with another evaluator account." >&2
+    exit 1
+  fi
 fi

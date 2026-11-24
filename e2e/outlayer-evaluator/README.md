@@ -17,7 +17,8 @@ the contract nor the app depends on it.
   (`wasi-examples/rpc-test-ark/wit/world.wit` at the same commit), through which the program
   reads transactions.
 - `.cargo/config.toml` builds for `wasm32-wasip2` into the repository's `target/`.
-- `build.sh` is the build to publish and to check: see [Reproducing the build](#reproducing-the-build).
+- `build.sh` is the build to publish and to check, and `wasm.sha256` the hash it must give:
+  see [Reproducing the build](#reproducing-the-build).
 
 It takes one JSON object on stdin and prints one on stdout, `{"error": ..}` when it refuses:
 
@@ -93,12 +94,13 @@ The bytes depend on the sources the program is built from: this directory, with 
 `Cargo.lock`, and [`crates/spec`](../../crates/spec) with the root `Cargo.toml` it takes its
 dependency versions from. A change to any of them is another program, with another account.
 
-At commit `0f7b0f8` it prints
-`6ff917139fd3ae85d0092ed9d5869e6c43a397a808a86804f729e27d258957f6`, from a clean export of
-that commit: the program of the testnet run recorded in [`../README.md`](../README.md).
+The hash it must print is recorded in [`wasm.sha256`](wasm.sha256), and `./build.sh --check`
+fails on any other. CI runs that on a GitHub runner for every change, so a change to the
+program's sources has to change the recorded hash with it, where a reviewer sees it. The
+recorded hash is the program of the testnet run in [`../README.md`](../README.md).
 
 Measured on one machine (Apple silicon, Docker Desktop): two builds from checkouts at
 different paths gave identical bytes. The same sources built in the image's `linux/arm64`
 variant gave different bytes, so the architecture is part of the recipe. A plain
 `cargo build --release` on the host gives a third binary: fine for the tests, not a hash
-anyone else can check. Whether another machine reproduces the hash has not been tried.
+anyone else can check.
