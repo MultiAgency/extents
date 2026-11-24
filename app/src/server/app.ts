@@ -8,7 +8,7 @@ import type { BaseEvent } from "@ag-ui/core";
 import { RunAgentInputSchema } from "@ag-ui/core/schemas";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { Budget } from "./budget.ts";
+import { Budget, BudgetError } from "./budget.ts";
 import { abortable, RUN_MS, withTimeout } from "./bounded.ts";
 import { RPC_READ_MS } from "./rpc.ts";
 
@@ -16,7 +16,7 @@ import { z } from "zod";
 
 import { proposal } from "../shared/objective.ts";
 import { validateParams, type Params } from "../shared/params.ts";
-import { accountId, parseSpec, specHash, type Spec } from "../shared/spec.ts";
+import { accountId, parseSpec, SpecError, specHash, type Spec } from "../shared/spec.ts";
 import { runAgent, type AgentDeps } from "./agent.ts";
 import { contribute, draft, review, type ContributorView } from "./agents.ts";
 import type { CheckDeps } from "./checks.ts";
@@ -162,17 +162,30 @@ export function createApp(deps: AppDeps): Hono {
    * terms too, and the spec hash in Params pins what it can publish.
    */
   app.post("/api/deploy", async (c) => {
+    // What is wrong with the request is the caller's to fix (400); what is wrong with the service is not.
+    const body = await c.req.json().catch(() => undefined);
+    if (typeof body !== "object" || body === null || Array.isArray(body) || typeof (body as { params?: unknown }).params !== "object" || (body as { params?: unknown }).params === null)
+      return c.json({ error: "the body must be an object with params" }, 400);
+    const { params, spec: raw } = body as { params: Params; spec?: unknown };
+    let spec: Spec | undefined;
     try {
-      const { params, spec: raw } = (await c.req.json()) as { params: Params; spec?: unknown };
       const problem = validateParams(params);
       if (problem) return c.json({ error: problem }, 400);
-      const spec = raw === undefined ? undefined : parseSpec(raw);
-      if (spec && specHash(spec) !== params.spec_hash) return c.json({ error: "the spec does not match params.spec_hash" }, 400);
-      const spent = charge();
-      if (spent) return c.json({ error: spent }, 429);
+      spec = raw === undefined ? undefined : parseSpec(raw);
+    } catch (e) {
+      // a spec that is not valid says why; params the validator cannot read stay generic, never an internal message
+      return c.json({ error: e instanceof SpecError ? e.message : "params are not valid" }, 400);
+    }
+    if (spec && specHash(spec) !== params.spec_hash) return c.json({ error: "the spec does not match params.spec_hash" }, 400);
+    const spent = charge();
+    if (spent) return c.json({ error: spent }, 429);
+    try {
       return c.json(await deps.deploy(params, spec));
     } catch (e) {
-      return c.json(failure(e), 400);
+      // the service's own ceiling is a 429; anything else is a failure of the deploy, whose detail stays in the log
+      if (e instanceof BudgetError) return c.json({ error: e.message }, 429);
+      console.error(e);
+      return c.json({ error: "deploy failed; try again" }, 502);
     }
   });
 
