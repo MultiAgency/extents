@@ -226,7 +226,7 @@ export function runEvaluation(input: RunAgentInput, deps: CheckRunDeps): AsyncGe
     const checkDeps = { ...deps, checks: delivered.length ? checks : { ...checks, judge: undefined } };
     const results = yield* streamChecks(
       spec,
-      { text: judgedText(delivered), oversized: overLimit(spec, delivered) },
+      { text: judgedText(delivered), reports: delivered, oversized: overLimit(spec, delivered) },
       checkDeps,
       retryRule(objective, deps),
     );
