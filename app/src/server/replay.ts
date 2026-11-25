@@ -195,7 +195,7 @@ export async function replay(directory: string, hash: string): Promise<ReplayRep
           return { answer, detail: "replayed from the archive" };
         },
       };
-      const replayed = await runCheck(c, spec, { text: judgedText(delivered), oversized }, deps);
+      const replayed = await runCheck(c, spec, { text: judgedText(delivered), reports: delivered, oversized }, deps);
       if (replayed.outcome === original) note("ok", subject, `reproduced from archived bytes: ${original}`);
       else note("problem", subject, `replay gives ${replayed.outcome} (${replayed.detail}); the review says ${original} (${result.detail})`);
     }

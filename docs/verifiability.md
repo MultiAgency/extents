@@ -24,6 +24,11 @@ cannot tell the real thing from the contributor's say-so.
 Two rules limit how much weight any one check carries: [a model is never the only gate](spec.md#a-model-is-never-the-only-gate)
 and [a judged spec caps the report size](spec.md#a-judged-spec-caps-the-report-size).
 
+With several contributors, "the report" above is all of their reports together, and their order never decides a
+result: [a criterion holds for the deliverable as a whole](spec.md#a-criterion-holds-for-the-deliverable-as-a-whole). So
+one contributor's report can satisfy `contains` for everyone, while a value one report states that fails its criterion
+fails it for everyone (source: `reportsOf` in `checks.ts`).
+
 An unreachable cited host does not fail the contributor immediately: the check is `skipped` with `unavailable`, and the
 evaluator's retry rule may turn that into a fail, because the contributor answers for the hosts it cites (source:
 `unreachable` in `checks.ts`).

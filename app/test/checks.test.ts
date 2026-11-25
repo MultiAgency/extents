@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { labelled, publicUrl, runCheck, type CheckDeps, type Deliverable } from "../src/server/checks.ts";
 import { BudgetError } from "../src/server/budget.ts";
+import { judgedText } from "../src/shared/judge.ts";
 import type { Criterion, Spec } from "../src/shared/spec.ts";
 
 const PAGES: Record<string, { body: string; type?: string; status?: number }> = {
@@ -80,10 +81,10 @@ describe("checks", () => {
     };
     const archived: CheckDeps = { ...deps, archive };
     // a page that loads fine: the archive is what fails, so the check must not report the page as unavailable
-    for (const check of [
+    for (const check of <Criterion["check"][]>[
       { kind: "live_url", label: "Event page", must_contain: "New York" },
       { kind: "sources", min: 1, figures: false },
-    ] as const) {
+    ]) {
       const c = crit(check);
       await expect(runCheck(c, spec(c), REPORT, archived)).rejects.toThrow(/archive is full/);
     }
@@ -269,4 +270,130 @@ test("a report over the spec's limit fails judged criteria without asking a mode
   );
   expect(r).toMatchObject({ outcome: "fail", detail: "over the spec's 10-byte report limit: organizer.testnet" });
   expect(asked).toBe(0);
+});
+
+// docs/spec.md, "A criterion holds for the deliverable as a whole"
+describe("several reports, judged as one deliverable", () => {
+  /** The deliverable the evaluator judges: every report, in the order given. */
+  const joint = (...reports: [string, string][]): Deliverable => {
+    const delivered = reports.map(([contributor, text]) => ({ contributor, text }));
+    return { text: judgedText(delivered), reports: delivered };
+  };
+  const reversed = (d: Deliverable): Deliverable =>
+    joint(...[...d.reports!].reverse().map((r): [string, string] => [r.contributor, r.text]));
+  /** The result in the order given, after checking the reversed order gives the same outcome. */
+  const both = async (check: Criterion["check"], d: Deliverable, s?: Spec) => {
+    const [forward, backward] = [await run(check, d, s), await run(check, reversed(d), s)];
+    expect(backward.outcome).toBe(forward.outcome);
+    return forward;
+  };
+
+  test("contains holds across the joint text", async () => {
+    const d = joint(["alice.near", "Nothing yet."], ["bob.near", "Tests passed: yes"]);
+    expect((await both({ kind: "contains", phrase: "tests passed", absent: false }, d)).outcome).toBe("pass");
+    expect((await both({ kind: "contains", phrase: "nothing yet", absent: true }, d)).outcome).toBe("fail");
+  });
+
+  test("numeric_match: every report that states the label must pass", async () => {
+    const check = { kind: "numeric_match", label: "Attendees", min: 30 } as const;
+    // agreeing; a report that doesn't state the label isn't counted
+    const agreeing = joint(["alice.near", "Attendees: 34"], ["bob.near", "Attendees: 40"], ["carol.near", "Venue: Pier 17"]);
+    expect(await both(check, agreeing)).toMatchObject({ outcome: "pass", detail: "alice.near: Attendees: 34; bob.near: Attendees: 40" });
+    // conflicting: the unfavourable value is never outvoted, whichever report comes first
+    const conflicting = joint(["alice.near", "Attendees: 50"], ["bob.near", "Attendees: 5"]);
+    expect(await both(check, conflicting)).toMatchObject({ outcome: "fail", detail: "bob.near: Attendees: 5, needs at least 30" });
+    expect(await both(check, joint(["alice.near", "Attendees: 50"], ["bob.near", "Attendees: lots"]))).toMatchObject({
+      outcome: "fail",
+      detail: 'bob.near: "Attendees: lots" is not a number',
+    });
+    // a label no report states still fails
+    expect(await both(check, joint(["alice.near", "Venue: Pier 17"], ["bob.near", "Nothing yet."]))).toMatchObject({
+      outcome: "fail",
+      detail: 'no "Attendees: <number>" line',
+    });
+  });
+
+  test("live_url: every report that states the label must pass", async () => {
+    const check = { kind: "live_url", label: "Event page", must_contain: "New York" } as const;
+    const page = "Event page: https://lu.ma/nyc";
+    const agreeing = await both(check, joint(["alice.near", page], ["bob.near", page]));
+    expect(agreeing.outcome).toBe("pass");
+    expect(agreeing.evidence).toHaveLength(1);
+    const conflicting = joint(["alice.near", "Event page: https://lu.ma/nyc"], ["bob.near", "Event page: https://example.org/regs.csv"]);
+    expect(await both(check, conflicting)).toMatchObject({
+      outcome: "fail",
+      detail: 'bob.near: https://example.org/regs.csv loads but does not show "New York"',
+    });
+    expect(await both(check, joint(["alice.near", "Event page: https://lu.ma/nyc"], ["bob.near", "Event page: soon"]))).toMatchObject({
+      outcome: "fail",
+      detail: 'bob.near: no "Event page: <url>" line',
+    });
+    expect((await both(check, joint(["alice.near", "Nothing yet."], ["bob.near", "Event page: https://lu.ma/nyc"]))).outcome).toBe("pass");
+    expect((await both(check, joint(["alice.near", "Nothing yet."], ["bob.near", "Nothing yet."]))).outcome).toBe("fail");
+    // an unreachable host leaves it skipped only while nothing fails
+    const down = joint(["alice.near", "Event page: https://lu.ma/nyc"], ["bob.near", "Event page: https://down.example.org/"]);
+    expect(await both(check, down)).toMatchObject({ outcome: "skipped", unavailable: true });
+  });
+
+  test("schema: each report's JSON must pass; a report with none isn't counted", async () => {
+    const json_schema = { type: "object", required: ["count"], properties: { count: { minimum: 30 } } };
+    const check: Criterion["check"] = { kind: "schema", json_schema };
+    const block = (count: number) => `Done.\n\`\`\`json\n{ "count": ${count} }\n\`\`\``;
+    const agreeing = joint(["alice.near", block(34)], ["bob.near", '{ "count": 40 }'], ["carol.near", "No JSON here."]);
+    expect((await both(check, agreeing)).outcome).toBe("pass");
+    expect(await both(check, joint(["alice.near", block(34)], ["bob.near", block(5)]))).toMatchObject({
+      outcome: "fail",
+      detail: expect.stringMatching(/^bob\.near: the JSON is not valid: /),
+    });
+    expect(await both(check, joint(["alice.near", block(34)], ["bob.near", "Broken.\n```json\n{ count\n```"]))).toMatchObject({
+      outcome: "fail",
+      detail: "bob.near: the JSON block does not parse",
+    });
+    expect(await both(check, joint(["alice.near", "No JSON."], ["bob.near", "None here either."]))).toMatchObject({
+      outcome: "fail",
+      detail: "no JSON found in the deliverable",
+    });
+  });
+
+  test("sources: the minimum is a total, and every report's figure must be on a cited page", async () => {
+    const attendees = crit({ kind: "numeric_match", label: "Attendees", min: 30 }, "n");
+    const sources = crit({ kind: "sources", min: 2, figures: true });
+    const s = spec(attendees, sources);
+    const agreeing = joint(["alice.near", "Attendees: 34\nhttps://lu.ma/nyc"], ["bob.near", "Attendees: 34\nhttps://example.org/regs.csv"]);
+    expect(await both(sources.check, agreeing, s)).toMatchObject({ outcome: "pass", detail: "2 cited links load" });
+    const conflicting = joint(
+      ["alice.near", "Attendees: 34\nhttps://lu.ma/nyc"],
+      ["bob.near", "Attendees: 90\nhttps://example.org/regs.csv"],
+    );
+    expect(await both(sources.check, conflicting, s)).toMatchObject({
+      outcome: "fail",
+      detail: "not found on available cited pages: bob.near: 90",
+    });
+  });
+
+  test("which links fit the fetch cap never depends on report order", async () => {
+    // twelve images, l.jpg down to a.jpg, split across two reports
+    const urls = Array.from({ length: 12 }, (_, i) => `https://example.org/${String.fromCharCode(108 - i)}.jpg`);
+    const asked: string[] = [];
+    const any: CheckDeps = {
+      fetch: (async (input: URL | string) => {
+        asked.push(String(input));
+        return new Response("x", { headers: { "content-type": "image/jpeg" } });
+      }) as typeof fetch,
+    };
+    const d = joint(["alice.near", urls.slice(0, 6).join("\n")], ["bob.near", urls.slice(6).join("\n")]);
+    const fetchedFor = async (deliverable: Deliverable, check: Criterion["check"]) => {
+      asked.length = 0;
+      const r = await runCheck(crit(check), spec(crit(check)), deliverable, any);
+      return { outcome: r.outcome, asked: [...asked].sort() };
+    };
+    for (const check of <Criterion["check"][]>[
+      { kind: "sources", min: 10, figures: false },
+      { kind: "media", kinds: ["image"], min: 10 },
+    ]) {
+      const forward = await fetchedFor(d, check);
+      expect(forward).toEqual({ outcome: "pass", asked: [...urls].sort().slice(0, 10) });
+      expect(await fetchedFor(reversed(d), check)).toEqual(forward);
+    }
+  });
 });

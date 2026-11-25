@@ -78,7 +78,9 @@ own grants); contributors then trust the sponsor's own verdict.
 
 The evaluator checks each contributor's published report, validates a **review** against the
 spec, publishes it, and attests with the review's hash (`review_hash`), which appears in the
-`resolved` event so anyone can verify the verdict later.
+`resolved` event so anyone can verify the verdict later. With several contributors,
+[a criterion holds for the deliverable as a whole](#a-criterion-holds-for-the-deliverable-as-a-whole):
+the reports together, never whichever comes first.
 
 A review records: the objective account, the spec hash, each contributor's deliverable by
 hash, one result per criterion (`pass`, `fail`, `skipped`), the evidence fetched (URL and
@@ -273,6 +275,16 @@ every model's call.
 
 A `schema` criterion's `json_schema` is JSON Schema draft 2020-12. It may name that dialect in
 `$schema`, with or without the trailing `#`, and is refused if it names any other.
+
+#### A criterion holds for the deliverable as a whole
+
+With several reports, each criterion has one result for all of them, and their order never decides
+it. `contains` reads the reports' joint text. For a labelled value (`numeric_match`, `live_url`, and
+the figures `sources` checks), every report that states the label must pass, so a conflicting value
+fails the criterion; a label no report states fails. For `schema`, every report's JSON block, or the
+report itself if it is JSON, must pass; a report with neither isn't counted, and the criterion fails
+if none has one. The minimums of `sources` and `media` are totals across the reports, and the links
+fetched within the evaluator's cap are the first in sorted order.
 
 #### One meaning has one hash
 

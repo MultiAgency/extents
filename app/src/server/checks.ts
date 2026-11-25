@@ -15,6 +15,11 @@ import type { CheckResult, LlmCall } from "../shared/review.ts";
 export interface Deliverable {
   /** The report, in Markdown: `<label>: <value>` lines, links, fenced JSON. */
   text: string;
+  /**
+   * Each delivered report by its contributor, when several are judged as one deliverable: labelled values and JSON
+   * are read from every report, so their order never decides a result. Absent, `text` is the one report.
+   */
+  reports?: { contributor: string; text: string }[];
   /** Delivered files by relative path, for `files` criteria. */
   files?: Record<string, string>;
   /** Whose reports exceed the spec's `max_report_bytes`: judged criteria fail on them, as the contributors agreed. */
@@ -119,6 +124,21 @@ export function labelled(text: string, label: string): string | undefined {
 const LINK = /https?:\/\/[^\s)<>\]"']+/g;
 const links = (text: string) => [...new Set(text.match(LINK) ?? [])];
 
+interface Report {
+  /** Set only when there are several reports, to name the one a detail is about. */
+  contributor?: string;
+  text: string;
+}
+
+/** The reports a criterion reads: each delivered one, or the deliverable's text as its one report. */
+const reportsOf = (d: Deliverable): Report[] => (d.reports && d.reports.length > 1 ? d.reports : [{ text: d.text }]);
+
+/** A detail about one report, naming its contributor when there are several. */
+const named = (r: Report, detail: string) => (r.contributor ? `${r.contributor}: ${detail}` : detail);
+
+/** Every report's links once, sorted: which of them fit the fetch cap never depends on report order. */
+const cited = (d: Deliverable) => [...new Set(reportsOf(d).flatMap((r) => links(r.text)))].sort();
+
 /** The complete value accepted by numeric_match, including grouped and scientific notation. */
 function numberValue(raw: string): number | undefined {
   const value = raw.replace(/[, _]/g, "");
@@ -172,35 +192,66 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
       return result(c, pass ? "pass" : "fail", `"${check.phrase}" ${found ? "found" : "not found"}`);
     }
     case "schema": {
-      const block = /```json\s*([\s\S]*?)```/i.exec(d.text)?.[1] ?? d.text;
-      let data: unknown;
-      try {
-        data = JSON.parse(block);
-      } catch {
-        return result(c, "fail", "no JSON found in the deliverable");
+      // each report's JSON block, or the report itself if it is JSON; a report with neither isn't counted
+      const found = reportsOf(d).flatMap((r) => {
+        const block = /```json\s*([\s\S]*?)```/i.exec(r.text)?.[1];
+        if (block !== undefined) return [{ r, block }];
+        try {
+          JSON.parse(r.text);
+          return [{ r, block: r.text }];
+        } catch {
+          return [];
+        }
+      });
+      if (!found.length) return result(c, "fail", "no JSON found in the deliverable");
+      const problems: string[] = [];
+      const values: { r: Report; data: unknown }[] = [];
+      for (const { r, block } of found) {
+        let data: unknown;
+        try {
+          data = JSON.parse(block);
+        } catch {
+          problems.push(named(r, "the JSON block does not parse"));
+          continue;
+        }
+        const tooBig = dataProblem(block, data);
+        if (tooBig) problems.push(named(r, tooBig));
+        else values.push({ r, data });
       }
-      const tooBig = dataProblem(block, data);
-      if (tooBig) return result(c, "fail", tooBig);
+      if (problems.length) return result(c, "fail", problems.join("; "));
       let validate: ReturnType<typeof compileSchema>;
       try {
         validate = compileSchema(check.json_schema);
       } catch (e) {
         return result(c, "skipped", `the schema can't be used: ${e instanceof Error ? e.message : e}`);
       }
-      return validate(data)
-        ? result(c, "pass", "the JSON is valid")
-        : result(c, "fail", `the JSON is not valid: ${validate.errors?.map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")}`);
+      const invalid = values.flatMap(({ r, data }) =>
+        validate(data)
+          ? []
+          : [named(r, `the JSON is not valid: ${validate.errors?.map((e) => `${e.instancePath || "/"} ${e.message}`).join("; ")}`)],
+      );
+      return invalid.length ? result(c, "fail", invalid.join("; ")) : result(c, "pass", "the JSON is valid");
     }
     case "numeric_match": {
-      const raw = labelled(d.text, check.label);
-      if (raw === undefined) return result(c, "fail", `no "${check.label}: <number>" line`);
-      const n = numberValue(raw);
-      if (n === undefined) return result(c, "fail", `"${check.label}: ${raw}" is not a number`);
-      const inRange = (check.min === undefined || n >= check.min) && (check.max === undefined || n <= check.max);
+      // every report that states the label must pass: an unfavourable value is never outvoted
+      const stated = reportsOf(d).flatMap((r) => {
+        const raw = labelled(r.text, check.label);
+        return raw === undefined ? [] : [{ r, raw }];
+      });
+      if (!stated.length) return result(c, "fail", `no "${check.label}: <number>" line`);
       const bounds = [check.min !== undefined && `at least ${check.min}`, check.max !== undefined && `at most ${check.max}`]
         .filter(Boolean)
         .join(" and ");
-      return result(c, inRange ? "pass" : "fail", `${check.label}: ${n}${inRange ? "" : `, needs ${bounds}`}`);
+      const read = stated.map(({ r, raw }) => {
+        const n = numberValue(raw);
+        if (n === undefined) return { pass: false, detail: named(r, `"${check.label}: ${raw}" is not a number`) };
+        const inRange = (check.min === undefined || n >= check.min) && (check.max === undefined || n <= check.max);
+        return { pass: inRange, detail: named(r, `${check.label}: ${n}${inRange ? "" : `, needs ${bounds}`}`) };
+      });
+      const failed = read.filter((x) => !x.pass);
+      return failed.length
+        ? result(c, "fail", failed.map((x) => x.detail).join("; "))
+        : result(c, "pass", read.map((x) => x.detail).join("; "));
     }
     case "files": {
       if (!d.files) return result(c, "skipped", "File contents are unavailable; this text-report evaluator cannot judge file delivery");
@@ -210,21 +261,43 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
         : result(c, "pass", `${check.paths.length} file${check.paths.length === 1 ? "" : "s"} delivered`);
     }
     case "live_url": {
-      const url = labelled(d.text, check.label)?.match(LINK)?.[0];
-      if (!url) return result(c, "fail", `no "${check.label}: <url>" line`);
-      const page = await load(deps, url);
-      if (typeof page === "string") return result(c, "fail", page);
-      if ("unavailable" in page) return unreachable(c, page.unavailable);
-      const evidence = [{ url: page.url, sha256: page.sha256 }];
-      if (!page.ok) return result(c, "fail", `${url} did not load`, evidence);
-      if (check.must_contain && !page.text.toLowerCase().includes(check.must_contain.toLowerCase()))
-        return result(c, "fail", `${url} loads but does not show "${check.must_contain}"`, evidence);
-      return result(c, "pass", `${url} loads${check.must_contain ? ` and shows "${check.must_contain}"` : ""}`, evidence);
+      // every report that states the label must pass; a label no report states fails
+      const stated = reportsOf(d).flatMap((r) => {
+        const value = labelled(r.text, check.label);
+        return value === undefined ? [] : [{ r, url: value.match(LINK)?.[0] }];
+      });
+      if (!stated.length) return result(c, "fail", `no "${check.label}: <url>" line`);
+      type Page = { outcome: "pass" | "fail" | "unavailable"; detail: string; evidence?: CheckResult["evidence"][number] };
+      const pages = await Promise.all(
+        stated.map(async ({ r, url }): Promise<Page> => {
+          if (!url) return { outcome: "fail", detail: named(r, `no "${check.label}: <url>" line`) };
+          const page = await load(deps, url);
+          if (typeof page === "string") return { outcome: "fail", detail: named(r, page) };
+          if ("unavailable" in page) return { outcome: "unavailable", detail: named(r, page.unavailable) };
+          const evidence = { url: page.url, sha256: page.sha256 };
+          if (!page.ok) return { outcome: "fail", detail: named(r, `${url} did not load`), evidence };
+          if (check.must_contain && !page.text.toLowerCase().includes(check.must_contain.toLowerCase()))
+            return { outcome: "fail", detail: named(r, `${url} loads but does not show "${check.must_contain}"`), evidence };
+          const shows = check.must_contain ? ` and shows "${check.must_contain}"` : "";
+          return { outcome: "pass", detail: named(r, `${url} loads${shows}`), evidence };
+        }),
+      );
+      // each page once, though several reports cite it
+      const evidence = pages.flatMap((p, i) =>
+        p.evidence && pages.findIndex((q) => q.evidence?.url === p.evidence!.url) === i ? [p.evidence] : [],
+      );
+      const detail = (outcome: Page["outcome"]) =>
+        pages
+          .filter((p) => p.outcome === outcome)
+          .map((p) => p.detail)
+          .join("; ");
+      if (pages.some((p) => p.outcome === "fail")) return result(c, "fail", detail("fail"), evidence);
+      if (pages.some((p) => p.outcome === "unavailable")) return unreachable(c, detail("unavailable"), evidence);
+      return result(c, "pass", detail("pass"), evidence);
     }
     case "sources": {
-      const cited = links(d.text).slice(0, MAX_FETCHES);
       // load never throws, so every link is fetched at once
-      const fetched = await Promise.all(cited.map((url) => load(deps, url)));
+      const fetched = await Promise.all(cited(d).slice(0, MAX_FETCHES).map((url) => load(deps, url)));
       const unavailable = fetched.some((p) => typeof p !== "string" && "unavailable" in p);
       const pages = fetched.filter((p): p is Fetched => typeof p !== "string" && "ok" in p && p.ok);
       const evidence = pages.map((p) => ({ url: p.url, sha256: p.sha256 }));
@@ -233,15 +306,20 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
           ? unreachable(c, `${pages.length} of the needed ${check.min} cited links load; some evidence is unavailable`, evidence)
           : result(c, "fail", `${pages.length} of the needed ${check.min} cited links load`, evidence);
       if (check.figures) {
+        // every report's figure for each label, or the label itself when no report states it
         const figures = spec.criteria.flatMap((k) => {
           if (k.check.kind !== "numeric_match") return [];
-          const raw = labelled(d.text, k.check.label);
-          return [{ label: k.check.label, raw, value: raw === undefined ? undefined : numberValue(raw) }];
+          const label = k.check.label;
+          const stated = reportsOf(d).flatMap((r) => {
+            const raw = labelled(r.text, label);
+            return raw === undefined ? [] : [{ shown: named(r, raw), value: numberValue(raw) }];
+          });
+          return stated.length ? stated : [{ shown: label, value: undefined }];
         });
         const numbers = pages.map((p) => sourceNumbers(p.text));
         const unsupported = figures
           .filter((f) => f.value === undefined || !numbers.some((page) => page.has(f.value!)))
-          .map((f) => f.raw ?? f.label);
+          .map((f) => f.shown);
         if (unsupported.length)
           return unavailable
             ? unreachable(c, `not found on available cited pages: ${unsupported.join(", ")}`, evidence)
@@ -250,7 +328,7 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
       return result(c, "pass", `${pages.length} cited link${pages.length === 1 ? "" : "s"} load`, evidence);
     }
     case "media": {
-      const candidates = links(d.text)
+      const candidates = cited(d)
         .filter((u) => check.kinds.some((k) => MEDIA_EXT[k]!.test(u)))
         .slice(0, MAX_FETCHES);
       const fetched = await Promise.all(candidates.map((url) => load(deps, url)));
