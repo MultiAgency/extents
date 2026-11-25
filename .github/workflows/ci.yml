@@ -35,8 +35,8 @@ jobs:
   # The two crates outside the workspace, which the `rust` job's `--all` and `--workspace` do not reach: their format,
   # then the evaluator program of the e2e's OutLayer scenario: its clippy, its tests, then its reproducible build,
   # which must give the recorded hash. OutLayer binds the program's key, and so the account an objective names as its
-  # evaluator, to that hash (e2e/outlayer-evaluator/README.md). And the attestation verifier, which has no tests:
-  # clippy is what notices it no longer building.
+  # evaluator, to that hash (e2e/outlayer-evaluator/README.md). And the attestation verifier: its clippy and its
+  # tests.
   evaluator:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -64,6 +64,8 @@ jobs:
           cargo test --locked --target "$(rustc -vV | sed -n 's/host: //p')"
         working-directory: e2e/outlayer-evaluator
       - run: cargo clippy --locked --all-targets -- -D warnings
+        working-directory: e2e/outlayer-attestation
+      - run: cargo test --locked
         working-directory: e2e/outlayer-attestation
       # in the pinned image, not with the toolchain above: only that build's hash is one others can check
       - run: e2e/outlayer-evaluator/build.sh --check
