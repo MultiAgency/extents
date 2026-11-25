@@ -32,10 +32,11 @@ jobs:
       - run: cargo clippy -p extents-objective --target wasm32-unknown-unknown --features=contract -- -D warnings
       - run: cargo test --workspace
 
-  # The two crates outside the workspace. The evaluator program of the e2e's OutLayer scenario: its tests, then its
-  # reproducible build, which must give the recorded hash. OutLayer binds the program's key, and so the account an
-  # objective names as its evaluator, to that hash (e2e/outlayer-evaluator/README.md). And the attestation verifier,
-  # which has no tests: clippy is what notices it no longer building.
+  # The two crates outside the workspace, which the `rust` job's `--all` and `--workspace` do not reach: their format,
+  # then the evaluator program of the e2e's OutLayer scenario: its clippy, its tests, then its reproducible build,
+  # which must give the recorded hash. OutLayer binds the program's key, and so the account an objective names as its
+  # evaluator, to that hash (e2e/outlayer-evaluator/README.md). And the attestation verifier, which has no tests:
+  # clippy is what notices it no longer building.
   evaluator:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -48,7 +49,17 @@ jobs:
           workspaces: |
             e2e/outlayer-evaluator -> ../../target/outlayer-evaluator
             e2e/outlayer-attestation -> ../../target/outlayer-attestation
-      # the crate builds for wasm32-wasip2 by default; its tests run on the host
+      - run: cargo fmt --check
+        working-directory: e2e/outlayer-evaluator
+      - run: cargo fmt --check
+        working-directory: e2e/outlayer-attestation
+      # the crate builds for wasm32-wasip2 by default, the only target that compiles the code that signs; the pinned
+      # toolchain does not list it, so it is added here rather than for every build of the contract
+      - run: |
+          rustup target add wasm32-wasip2
+          cargo clippy --locked --all-targets -- -D warnings
+        working-directory: e2e/outlayer-evaluator
+      # its tests run on the host
       - run: |
           cargo test --locked --target "$(rustc -vV | sed -n 's/host: //p')"
         working-directory: e2e/outlayer-evaluator
