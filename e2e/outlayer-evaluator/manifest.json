@@ -1,7 +1,7 @@
 {
   "display": { "name": "Extents evaluator probe" },
   "operations": ["account", "attest"],
-  "capabilities": { "network": ["api.github.com"] },
+  "capabilities": { "network": ["api.github.com", "rpc.testnet.fastnear.com"] },
   "signing_keys": [
     { "path": "evaluator", "type": "ed25519", "bind": "wasm", "caller": "none" }
   ]

@@ -8,7 +8,8 @@
 use extents_spec::{Check, Criterion, CriterionResult, Evidence, Outcome, Spec};
 use sha2::{Digest, Sha256};
 
-/// The hosts evidence may come from: the manifest's `capabilities.network`.
+/// The hosts evidence may come from: the manifest's `capabilities.network`,
+/// less the RPC the program reads deliveries from.
 pub const HOSTS: &[&str] = &["api.github.com"];
 
 /// What a fetch of a pinned URL returned.

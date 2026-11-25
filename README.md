@@ -296,6 +296,8 @@ verdict can be checked by anyone holding the spec and the deliverables.
   that passed must have some, so a later check can run against the same bytes
   rather than a page that may have changed since. One that failed may have
   none (nothing to fetch, or nothing loaded), with its detail saying why.
+  A `sources` criterion's `min` counts distinct pages: links that differ only
+  by `#fragment`, or whose responses are the same bytes, count once.
 - **Hash:** SHA-256 of the document's [RFC 8785] canonical JSON. A document is
   accepted only in normal form (no unknown fields, no `null` for an optional
   field left out), so one meaning has one hash. The vectors in

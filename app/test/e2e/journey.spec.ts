@@ -21,10 +21,12 @@ const SPEC = {
 };
 
 /** Serves the objective in `state`; returns a setter, as if another wallet acted. */
-async function objective(page: Page, state: Record<string, unknown>) {
+async function objective(page: Page, state: Record<string, unknown>, view: Record<string, unknown> = {}) {
   let current = state;
   await page.route(`**/api/objective/${ADDRESS}`, (r) =>
-    r.fulfill({ json: { deployed: true, state: { funded: "5000000", ...current }, documents: { params: PARAMS, spec: SPEC } } }),
+    r.fulfill({
+      json: { deployed: true, state: { funded: "5000000", ...current }, documents: { params: PARAMS, spec: SPEC }, ...view },
+    }),
   );
   return (next: Record<string, unknown>) => void (current = next);
 }
@@ -113,6 +115,26 @@ test("once everyone delivered, the sponsor may release the payment without the e
   expect(chain.txs[0]!.calls[0]).toMatchObject({ receiver: ADDRESS, args: { params: PARAMS, attestation: { verdict: "achieved" } } });
 });
 
+// docs/spec.md, "The sponsor may release but never fail"
+test("a sponsor who may also propose to the evaluator DAO can still release", async ({ page }) => {
+  const chain = await setup(page, { txs: [], published: true, funded: true }, "customer.testnet");
+  await objective(page, { committed: 3, delivered: 3 }, { evaluator_dao: { proposal_bond: "1", proposers: ["customer.testnet"] } });
+  await page.goto(`/o/${ADDRESS}`);
+  await expect(next(page)).toContainText("Your turn: judge the deliveries and attest a verdict.");
+  await expect(page.getByRole("region", { name: "Evaluate" })).toBeVisible();
+  await page.getByRole("region", { name: "Release payment" }).getByRole("button", { name: "Release payment" }).click();
+  await expect.poll(() => chain.txs.map((t) => t.calls[0]!.method)).toEqual(["ob_attest"]);
+  expect(chain.txs[0]!.calls[0]).toMatchObject({ receiver: ADDRESS, args: { params: PARAMS, attestation: { verdict: "achieved" } } });
+});
+
+test("a sponsor who is the evaluator attests the verdict, and is offered no release", async ({ page }) => {
+  await setup(page, { txs: [], published: true, funded: true }, "customer.testnet");
+  await objective(page, { committed: 3, delivered: 3 }, { documents: { params: { ...PARAMS, evaluator: "customer.testnet" }, spec: SPEC } });
+  await page.goto(`/o/${ADDRESS}`);
+  await expect(page.getByRole("region", { name: "Evaluate" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Release payment" })).toHaveCount(0);
+});
+
 test("while nobody has committed, the sponsor may cancel and take the funding back", async ({ page }) => {
   const chain = await setup(page, { txs: [], published: true, funded: true }, "customer.testnet");
   const set = await objective(page, {});
@@ -142,4 +164,25 @@ test("a committed contributor may withdraw before delivering", async ({ page }) 
   await part.getByRole("button", { name: "Withdraw" }).click();
   await expect.poll(() => chain.txs.map((t) => t.calls[0]!.method)).toEqual(["ob_withdraw"]);
   expect(chain.txs[0]!.calls[0]).toMatchObject({ receiver: ADDRESS, args: { params: PARAMS } });
+});
+
+// docs/spec.md, "A contributor commits before the deadline"; docs/spec.md, "A holder may withdraw until it delivers"; docs/spec.md, "A delivery is final"
+test("after the deadline, a contributor is offered no commit, delivery or withdrawal", async ({ page }) => {
+  await setup(page, { txs: [], published: true, funded: true }, "organizer.testnet");
+  const set = await objective(page, { committed: 1 });
+  await page.clock.setFixedTime(new Date("2028-01-01T00:00:00Z"));
+  await page.goto(`/o/${ADDRESS}`);
+  const part = page.getByRole("region", { name: "Your part" });
+  await expect(part).toContainText("The deadline to commit and deliver has passed.");
+  await expect(part.getByRole("button")).toHaveCount(0);
+
+  set({});
+  await page.reload();
+  await expect(part).toContainText("The deadline to commit and deliver has passed.");
+  await expect(part.getByRole("button")).toHaveCount(0);
+
+  // a delivery made in time can still be proven
+  set({ committed: 1, delivered: 1 });
+  await page.reload();
+  await expect(part.getByRole("button", { name: "Publish delivery proof" })).toBeVisible();
 });

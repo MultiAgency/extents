@@ -1,5 +1,5 @@
 //! The program as the worker runs it: its input and output, and the host
-//! interfaces it reads the chain, fetches pages and signs through.
+//! interfaces it reaches the network and signs through.
 
 use std::{
     collections::BTreeMap,
@@ -9,19 +9,17 @@ use std::{
 
 use extents_spec::{Deliverable, Outcome, Review, Spec, VERSION, Verdict};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use wasi_http_client::Client;
 
-use crate::judge::{Page, judge};
+use crate::{
+    delivery::{self, RPC},
+    judge::{Page, judge},
+};
 
 mod keys_host {
     wit_bindgen::generate!({ world: "signing-keys-host", path: "wit" });
 }
-mod rpc_host {
-    wit_bindgen::generate!({ world: "rpc-test", path: "wit-rpc" });
-}
 use keys_host::outlayer::signing_keys::api as keys;
-use rpc_host::near::rpc::api as rpc;
 
 /// The manifest, in the custom section the worker reads. It is part of the
 /// wasm, so of the hash the key is bound to.
@@ -32,8 +30,6 @@ static MANIFEST: [u8; include_bytes!("../manifest.json").len()] =
 
 /// The manifest's key.
 const KEY: &str = "evaluator";
-/// The objective's event standard.
-const STANDARD: &str = "extents-objective";
 
 pub fn main() {
     let mut input = String::new();
@@ -66,47 +62,20 @@ fn string<'a>(value: &'a Value, name: &str) -> Result<&'a str, String> {
 }
 
 /// The contributor whose delivery of `delivery.report` to `objective` the
-/// finalized transaction `delivery.tx` records, and the report's SHA-256.
-///
-/// The delivery is a `delivered` event with the report's hash, logged by a
-/// receipt that `objective` executed and that succeeded: a failed receipt
-/// keeps its logs.
+/// finalized transaction `delivery.tx` records, read from [`RPC`], and the
+/// report's SHA-256.
 fn delivered(objective: &str, delivery: &Value) -> Result<(String, [u8; 32]), String> {
     let tx = string(delivery, "tx")?;
-    let sha256: [u8; 32] = Sha256::digest(string(delivery, "report")?).into();
-    let hash = hex::encode(sha256);
-
-    let (status, error) = rpc::tx_status(tx, string(delivery, "signer")?, "FINAL");
-    if !error.is_empty() {
-        return Err(format!("{tx}: {error}"));
-    }
-    let status: Value = serde_json::from_str(&status).map_err(|e| e.to_string())?;
-    let status = status.get("result").unwrap_or(&status);
-    if status["final_execution_status"] != "FINAL" {
-        return Err(format!("{tx} is not final"));
-    }
-
-    let receipts = status["receipts_outcome"].as_array();
-    receipts
-        .into_iter()
-        .flatten()
-        .map(|receipt| &receipt["outcome"])
-        .filter(|outcome| {
-            outcome["executor_id"] == objective
-                && (outcome["status"].get("SuccessValue").is_some()
-                    || outcome["status"].get("SuccessReceiptId").is_some())
-        })
-        .flat_map(|outcome| outcome["logs"].as_array().into_iter().flatten())
-        .filter_map(|log| log.as_str()?.strip_prefix("EVENT_JSON:"))
-        .filter_map(|event| serde_json::from_str::<Value>(event).ok())
-        .find(|event| {
-            event["standard"] == STANDARD
-                && event["event"] == "delivered"
-                && event["data"]["hash"] == hash.as_str()
-        })
-        .and_then(|event| event["data"]["contributor"].as_str().map(str::to_owned))
-        .map(|contributor| (contributor, sha256))
-        .ok_or_else(|| format!("{tx} records no delivery of this report to {objective}"))
+    let response = Client::new()
+        .post(RPC)
+        .header("Content-Type", "application/json")
+        .body(&delivery::request(tx, string(delivery, "signer")?))
+        .connect_timeout(Duration::from_secs(10))
+        .send()
+        .map_err(|e| format!("{tx}: {RPC}: {e}"))?;
+    let status = response.status();
+    let body = response.body().map_err(|e| format!("{tx}: {RPC}: {e}"))?;
+    delivery::delivered(tx, status, &body, objective, string(delivery, "report")?)
 }
 
 /// Fetches `url`, which `judge` has found the spec to name on a host of the

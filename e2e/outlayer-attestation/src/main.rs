@@ -4,9 +4,14 @@
 //! - what was asked and answered, from the request's transaction on chain;
 //! - the quote's signature chain, against collateral from Intel's own
 //!   service and the Intel root certificate compiled into `dcap-qvl`;
-//! - the worker build's measurements, against the register contract's list.
+//! - the worker build's measurements, against the register contract's list;
+//! - given the worker's boot event log and app-compose, which release it runs
+//!   ([`release`]).
 //!
-//! Only the quote itself comes from OutLayer's API.
+//! The quote comes from OutLayer's API, and the event log and compose from its
+//! portal; each is checked against the quote.
+
+mod release;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -76,8 +81,10 @@ fn task_hash(record: &Value) -> Result<String> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [tx_hash, signer, wasm] = &args[..] else {
-        bail!("usage: outlayer-attestation <tx hash> <tx signer> <wasm file>");
+    let (tx_hash, signer, wasm, worker) = match &args[..] {
+        [tx_hash, signer, wasm] => (tx_hash, signer, wasm, None),
+        [tx_hash, signer, wasm, worker] => (tx_hash, signer, wasm, Some(worker)),
+        _ => bail!("usage: outlayer-attestation <tx hash> <tx signer> <wasm file> [<worker file>]"),
     };
     let wasm_hash = sha256(std::fs::read(wasm).with_context(|| format!("reading {wasm}"))?);
     let client = reqwest::Client::builder().user_agent("extents").build()?;
@@ -190,6 +197,23 @@ async fn main() -> Result<()> {
         "build   rtmr3 {}… is approved by {REGISTER}",
         &hex::encode(td.rt_mr3)[..16]
     );
+
+    // Which release that build is, from the worker's own boot record.
+    if let Some(file) = worker {
+        let worker: Value = serde_json::from_slice(
+            &std::fs::read(file).with_context(|| format!("reading {file}"))?,
+        )?;
+        let release = release::release(&worker, &td.rt_mr3)?;
+        println!(
+            "release its event log replays to the quote's RTMR3 and names compose {}…, which {file} holds",
+            &release.compose_hash[..16]
+        );
+        for image in &release.images {
+            println!(
+                "image   {image}: check with gh attestation verify oci://{image} -R out-layer/outlayer"
+            );
+        }
+    }
     println!("VERIFIED");
     Ok(())
 }

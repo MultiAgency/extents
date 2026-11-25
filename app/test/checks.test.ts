@@ -175,6 +175,25 @@ describe("checks", () => {
     });
   });
 
+  test("sources: one page cited under several fragments counts once", async () => {
+    const sources = crit({ kind: "sources", min: 2, figures: false });
+    fetched.length = 0;
+    const fragments = { text: "https://lu.ma/nyc#a https://lu.ma/nyc#b https://lu.ma/nyc" };
+    const r = await runCheck(sources, spec(sources), fragments, deps);
+    expect(r).toMatchObject({ outcome: "fail", detail: "1 of the needed 2 cited links load" });
+    expect(r.evidence).toHaveLength(1);
+    expect(fetched).toEqual(["https://lu.ma/nyc"]);
+    const apart = { text: "https://lu.ma/nyc#a https://example.org/regs.csv#b" };
+    expect((await runCheck(sources, spec(sources), apart, deps)).outcome).toBe("pass");
+  });
+
+  test("sources: the same bytes at two addresses count once", async () => {
+    const sources = crit({ kind: "sources", min: 2, figures: false });
+    const same: CheckDeps = { fetch: (async (_: URL | string) => new Response("same", { status: 200 })) as typeof fetch };
+    const r = await runCheck(sources, spec(sources), { text: "https://a.example.org/x http://a.example.org/x" }, same);
+    expect(r).toMatchObject({ outcome: "fail", detail: "1 of the needed 2 cited links load" });
+  });
+
   test.each([
     ["3e1", "Only 3 people attended.", "fail"],
     ["30", "There were 130 attendees.", "fail"],

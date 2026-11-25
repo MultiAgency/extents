@@ -6,16 +6,15 @@ runs in a TEE, and whose signing key belongs to this exact build. An experiment:
 the contract nor the app depends on it.
 
 - `manifest.json` is embedded in the wasm as the `outlayer.manifest` section. It declares
-  the key `evaluator` (ed25519, `bind: "wasm"`, `caller: "none"`) and the one host the
-  program may reach, `api.github.com`.
-- `src/judge.rs` judges reports against a spec, with the fetching passed in. Its tests run
-  on the host: `cargo test --target "$(rustc -vV | sed -n 's/host: //p')"`.
+  the key `evaluator` (ed25519, `bind: "wasm"`, `caller: "none"`) and the two hosts the
+  program may reach: `api.github.com` for evidence, and `rpc.testnet.fastnear.com`, the RPC
+  it reads deliveries from.
+- `src/judge.rs` judges reports against a spec, with the fetching passed in, and
+  `src/delivery.rs` reads a delivery from the RPC's answer. Their tests run on the host:
+  `cargo test --target "$(rustc -vV | sed -n 's/host: //p')"`.
 - `src/program.rs` is the program as the worker runs it: input, output and host interfaces.
 - `wit/signing-keys.wit` is a copy of OutLayer's `worker/wit/deps/signing-keys.wit`
   (`out-layer/outlayer` at `d127d49`), the host interface the key is used through.
-- `wit-rpc/rpc.wit` is a copy of OutLayer's `near:rpc` host interface
-  (`wasi-examples/rpc-test-ark/wit/world.wit` at the same commit), through which the program
-  reads transactions.
 - `.cargo/config.toml` builds for `wasm32-wasip2` into the repository's `target/`.
 - `build.sh` is the build to publish and to check, and `wasm.sha256` the hash it must give:
   see [Reproducing the build](#reproducing-the-build).
@@ -33,7 +32,8 @@ It takes one JSON object on stdin and prints one on stdout, `{"error": ..}` when
    `params.spec_hash`. It is parsed and hashed by [`crates/spec`](../../crates/spec) itself.
 2. **The deliveries.** Each of `deliveries` is `{report, tx, signer}`: a report's text, and
    the transaction that delivered it with that transaction's signer. The program fetches the
-   finalized transaction and requires a `delivered` event carrying the report's SHA-256,
+   finalized transaction from `rpc.testnet.fastnear.com`, the one RPC it names, and requires
+   a `delivered` event carrying the report's SHA-256,
    logged by a successful receipt that `objective` executed. Every slot of
    `params.contributors` must have one.
 3. **The criteria**, for every report:
@@ -75,7 +75,16 @@ The objective then stays open, and expires and refunds unless a later run can ju
   pull request, not for whichever pull request later closes an issue.
 - `must_contain` is still a substring test: it finds a key and value somewhere in the
   page, not at a place in its structure.
-- It trusts the worker's RPC for the transaction, and its caller for the Verifier and nonce.
+- It trusts one RPC provider for the transaction. `rpc.testnet.fastnear.com` is named in
+  the program and its manifest, so it is part of the build the key is bound to, and the
+  worker reaches it over TLS that ends inside the enclave: the worker's operator cannot
+  choose it, as it chooses the endpoint of the worker's own RPC interface. Its answer
+  still comes with no proof. The objective keeps that a contributor delivered, not the
+  hash, so only this read ties the report judged to the one delivered: if that provider
+  lied, a report could be judged that was never delivered, under an attestation that still
+  verifies. A build for another network names that network's RPC, so it is another build
+  with another key.
+- It trusts its caller for the Verifier and nonce.
 
 ## Reproducing the build
 

@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { attestationOf, attestProposal, mayPropose, type Dao } from "../shared/attest.ts";
 import { calls } from "../shared/calls.ts";
 import { utf8Bytes } from "../shared/judge.ts";
-import { deliveredBy, deliveryHash, holders, slotOf, verifyReports } from "../shared/delivery.ts";
+import { deliveredBy, deliveryHash, holders, openToContributors, slotOf, verifyReports } from "../shared/delivery.ts";
 import type { DraftState } from "../shared/draft.ts";
 import { objectiveCodeHash, sponsorMayRelease } from "../shared/config.ts";
 import { parseLaunchFragment, type LaunchLink } from "../shared/launch-link.ts";
@@ -113,8 +113,15 @@ export function ObjectivePage({ address }: { address: string }) {
     Boolean(near && accountId && !view.state?.outcome) &&
     (accountId === docs.params.evaluator || Boolean(view.evaluator_dao && accountId && mayPropose(view.evaluator_dao, accountId)));
   const journey = objectiveJourney(docs.params, view.state, Date.now());
-  // everyone delivered and the verdict is pending: the sponsor may pay out without it, on a build that allows it
-  const releasing = sponsorMayRelease() && Boolean(near) && accountId === docs.params.sponsor && !evaluating && journey.current === "judge";
+  // everyone delivered and the verdict is pending: the sponsor may pay out without it, on a build that allows it.
+  // A sponsor who is the evaluator itself attests instead (the contract takes that as the verdict, `achieved`);
+  // one who may only propose to an evaluator DAO still releases in its own name
+  const releasing =
+    sponsorMayRelease() &&
+    Boolean(near) &&
+    accountId === docs.params.sponsor &&
+    accountId !== docs.params.evaluator &&
+    journey.current === "judge";
   // nobody holds a slot yet: the sponsor may still call it off and take any funding back
   const cancelling = Boolean(near) && accountId === docs.params.sponsor && !view.state?.outcome && !view.state?.committed;
   // the map stays inked once the escrow paid out, not only while it holds the money
@@ -196,6 +203,7 @@ export function ObjectivePage({ address }: { address: string }) {
               params={docs.params}
               committed={Boolean(bit(view.state?.committed, index))}
               delivered={Boolean(bit(view.state?.delivered, index))}
+              open={openToContributors(docs.params, view.state, Date.now())}
               funded={funded > 0n}
               maxReportBytes={docs.spec.max_report_bytes}
               near={near}
@@ -303,20 +311,22 @@ function SponsorLaunch({ link, draft, onDone }: { link: LaunchLink; draft: Draft
   return <Plat draft={draft} {...(model ? { launch: model } : {})} />;
 }
 
-// Its copy restates: docs/spec.md, "A holder may withdraw until it delivers"; docs/spec.md, "A delivery is final"
+// Its copy restates: docs/spec.md, "A contributor commits before the deadline"; docs/spec.md, "A holder may withdraw until it delivers"; docs/spec.md, "A delivery is final"
 function Contributor(props: {
   address: string;
   account: string;
   params: Params;
   committed: boolean;
   delivered: boolean;
+  /** Whether the contract still takes a commitment, a withdrawal or a delivery. */
+  open: boolean;
   funded: boolean;
   /** The spec's per-report limit, in UTF-8 bytes, when it sets one. */
   maxReportBytes?: number;
   near: Near;
   onChange: () => Promise<void>;
 }) {
-  const { address, account, params, committed, delivered, funded, maxReportBytes, near, onChange } = props;
+  const { address, account, params, committed, delivered, open, funded, maxReportBytes, near, onChange } = props;
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string>();
   const proofKey = `extents:delivery:${address}:${account}`;
@@ -366,7 +376,9 @@ function Contributor(props: {
   return (
     <section id="act" aria-label="Your part" className="scroll-mt-6 flex flex-col gap-4 rounded-[18px] border border-rule bg-sheet p-5">
       <h2 className="font-display text-lg font-semibold">Your part</h2>
-      {!committed ? (
+      {!delivered && !open ? (
+        <p className="text-ink-soft">The deadline to commit and deliver has passed.</p>
+      ) : !committed ? (
         <>
           <p className="text-ink-soft">
             Commit to deliver your part. {funded ? "The money is already in escrow." : "The sponsor hasn't funded it yet."} Until you
