@@ -61,6 +61,7 @@ export function checksForRun(deps: CheckDeps): CheckDeps {
 async function load(deps: CheckDeps, raw: string): Promise<Fetched | string | { unavailable: string }> {
   const url = publicUrl(raw);
   if (!url) return `${raw} is not a public http(s) address`;
+  url.hash = ""; // never sent, so it names no other page: one run fetches and caches a page once
   const cache = evidenceCaches.get(deps);
   const previous = cache?.get(url.href);
   if (previous) return previous;
@@ -117,7 +118,8 @@ export function labelled(text: string, label: string): string | undefined {
 }
 
 const LINK = /https?:\/\/[^\s)<>\]"']+/g;
-const links = (text: string) => [...new Set(text.match(LINK) ?? [])];
+/** The cited links, once each: two that differ only by `#fragment` name the same page. */
+const links = (text: string) => [...new Set((text.match(LINK) ?? []).map((l) => l.replace(/#.*$/s, "")))];
 
 /** The complete value accepted by numeric_match, including grouped and scientific notation. */
 function numberValue(raw: string): number | undefined {
@@ -226,7 +228,10 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
       // load never throws, so every link is fetched at once
       const fetched = await Promise.all(cited.map((url) => load(deps, url)));
       const unavailable = fetched.some((p) => typeof p !== "string" && "unavailable" in p);
-      const pages = fetched.filter((p): p is Fetched => typeof p !== "string" && "ok" in p && p.ok);
+      // a page counts once: the same bytes behind two addresses (a mirror, http and https) are one source
+      const pages = fetched
+        .filter((p): p is Fetched => typeof p !== "string" && "ok" in p && p.ok)
+        .filter((p, i, all) => all.findIndex((q) => q.sha256 === p.sha256) === i);
       const evidence = pages.map((p) => ({ url: p.url, sha256: p.sha256 }));
       if (pages.length < check.min)
         return unavailable
