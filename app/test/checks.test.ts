@@ -378,7 +378,8 @@ describe("several reports, judged as one deliverable", () => {
     const any: CheckDeps = {
       fetch: (async (input: URL | string) => {
         asked.push(String(input));
-        return new Response("x", { headers: { "content-type": "image/jpeg" } });
+        // a body of its own per link, so each counts as a page of its own
+        return new Response(String(input), { headers: { "content-type": "image/jpeg" } });
       }) as typeof fetch,
     };
     const d = joint(["alice.near", urls.slice(0, 6).join("\n")], ["bob.near", urls.slice(6).join("\n")]);
