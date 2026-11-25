@@ -112,7 +112,7 @@ test("a valid seven-criterion evaluation queues all seventy healthy requests", a
     })),
   };
   validateAppSpec(spec);
-  responses = Array.from({ length: 70 }, () => ({ status: 200, body: Buffer.from("source") }));
+  responses = Array.from({ length: 70 }, (_, i) => ({ status: 200, body: Buffer.from(`source ${i}`) }));
   const text = Array.from({ length: 10 }, (_, i) => `https://example.org/${i}`).join("\n");
   const results = await Promise.all(spec.criteria.map((c) => runCheck(c, spec, { text }, { fetch: evidenceFetch as typeof fetch })));
   expect(results.map((r) => r.outcome)).toEqual(Array(7).fill("pass"));
