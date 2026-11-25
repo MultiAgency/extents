@@ -1,6 +1,6 @@
 ---
 name: extents
-description: Draft, deploy and hand over an Extents objective (escrow for a real-world outcome on NEAR) for a sponsor to sign, read its state, take a contributor's part in one, and evaluate its deliveries for the evaluator. Use when someone wants to fund an outcome that other people deliver and an evaluator judges, or is one of those people or that evaluator.
+description: Draft, deploy and hand over an Extents objective (escrow for a real-world outcome on NEAR) for a sponsor to sign, read its state, take a contributor's part in one, cancel or release one for its sponsor, and evaluate its deliveries for the evaluator. Use when someone wants to fund an outcome that other people deliver and an evaluator judges, or is one of those people or that evaluator.
 ---
 
 # Extents for agents
@@ -55,6 +55,24 @@ After `ob_deliver(params, {hash: sha256(UTF8(report))})` succeeds and finalizes,
 The evaluator verifies the objective's successful `delivered` event in that finalized transaction. A backup publishes
 as its own account. A slot with no report, no proof, or text that doesn't match its delivery hash is listed as `missing`; a proof the chain can't confirm yet stops evaluation until it can. Later replacement text is not accepted.
 
+## Cancel or release as the sponsor
+
+A sponsor with a browser wallet does both on the objective's page. One who signs with tools of their own asks
+`POST /api/objective/<objective>/sponsor` (empty body); its `next` says what to do and `transactions` holds the call to
+sign, if there is one now. Both end the objective and cannot be undone: show the sponsor what the call does first, and
+never sign for them.
+
+<!-- Restates docs/spec.md, "The sponsor may cancel until someone commits"; docs/spec.md, "The sponsor may release but never fail"; docs/spec.md, "Only the Verifier relays signed calls" -->
+1. **Cancel**, while nobody has committed: sign the `cancel` it returns. Everything funded returns to the sponsor. Once
+   a contributor commits there is no `cancel`: the funding is locked until a verdict, a release or the deadline.
+2. **Release**, once every contributor delivered and before the last moment to attest: sign the `release` it returns.
+   It pays the contributors by their shares without the evaluator's verdict. It can only pay; a sponsor can never fail
+   an objective. A sponsor who is also the evaluator gets no `release`: they evaluate instead.
+
+A sponsor that signs intents rather than NEAR transactions, as it funded with `fund_intent`, signs `cancel_intent` or
+`release_intent` instead, with `signer_id` = the sponsor, and relays it with `execute_intents`. The objective takes these
+only from the Verifier that its `auth_caller` names; every objective `/api/draft` builds names it.
+
 ## Evaluate an objective
 
 1. **Evaluate it** with `POST /api/objective/<objective>/review`. Every criterion is checked against the reports the
@@ -91,7 +109,7 @@ Agent API's `POST /v1/agents/{agent_id}/native/near/call`.
 
 What that account cannot do: sign `fund`. Its NEAR key never calls the NEAR Intents contracts. To sponsor, name as
 `sponsor` the account its EVM or Solana key signs intents as, deploy with `POST /api/deploy {params, spec}` (this app
-publishes the terms for it), then sign the draft's `fund_intent` with that key. A DAO evaluator's `propose` works like any other call once the DAO is
+publishes the terms for it), then sign the draft's `fund_intent` with that key, and later `/sponsor`'s `cancel_intent` or `release_intent` the same way. A DAO evaluator's `propose` works like any other call once the DAO is
 listed, but its bond is NEAR the policy's `destinations` must allow.
 
 ## Rules

@@ -6,7 +6,7 @@
 import { EventEncoder } from "@ag-ui/encoder";
 import type { BaseEvent } from "@ag-ui/core";
 import { RunAgentInputSchema } from "@ag-ui/core/schemas";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { Budget, BudgetError } from "./budget.ts";
 import { abortable, RUN_MS, withTimeout } from "./bounded.ts";
@@ -18,7 +18,7 @@ import { proposal } from "../shared/objective.ts";
 import { validateParams, type Params } from "../shared/params.ts";
 import { accountId, parseSpec, SpecError, specHash, type Spec } from "../shared/spec.ts";
 import { runAgent, type AgentDeps } from "./agent.ts";
-import { contribute, draft, review, type ContributorView } from "./agents.ts";
+import { contribute, draft, review, sponsor, type ObjectiveView } from "./agents.ts";
 import type { CheckDeps } from "./checks.ts";
 import type { ObjectiveUsage } from "./archive.ts";
 import { runChecks, runEvaluation, type CheckRunDeps } from "./precheck.ts";
@@ -224,6 +224,23 @@ export function createApp(deps: AppDeps): Hono {
     }
   });
 
+  /** A role's part in an objective, from its state on chain: 502 when that can't be read, 400 when the part refuses it. */
+  const answer = async (c: Context, objective: string, part: (view: ObjectiveView) => object) => {
+    let view: ObjectiveView;
+    try {
+      const signal = withTimeout(c.req.raw.signal, RPC_READ_MS);
+      view = (await abortable(signal, () => deps.chain.describeObjective(objective, signal))) as ObjectiveView;
+    } catch (e) {
+      console.error(e);
+      return c.json({ error: "could not read the objective" }, 502);
+    }
+    try {
+      return c.json(part(view));
+    } catch (e) {
+      return c.json(failure(e), 400);
+    }
+  };
+
   const contributeInput = z.object({
     account: accountId,
     // the reader accepts no longer report
@@ -240,19 +257,14 @@ export function createApp(deps: AppDeps): Hono {
     if (!objective.success) return c.json({ error: "not an account id" }, 400);
     const input = contributeInput.safeParse(await c.req.json().catch(() => undefined));
     if (!input.success) return c.json({ error: `invalid input: ${z.prettifyError(input.error)}` }, 400);
-    let view: ContributorView;
-    try {
-      const signal = withTimeout(c.req.raw.signal, RPC_READ_MS);
-      view = (await abortable(signal, () => deps.chain.describeObjective(objective.data, signal))) as ContributorView;
-    } catch (e) {
-      console.error(e);
-      return c.json({ error: "could not read the objective" }, 502);
-    }
-    try {
-      return c.json(contribute(objective.data, view, input.data, c.req.url));
-    } catch (e) {
-      return c.json(failure(e), 400);
-    }
+    return answer(c, objective.data, (view) => contribute(objective.data, view, input.data, c.req.url));
+  });
+
+  /** The sponsor's part after launch as unsigned calls: cancel while nobody has committed, release once every slot delivered. Nothing is sent. */
+  app.post("/api/objective/:id/sponsor", async (c) => {
+    const objective = accountId.safeParse(c.req.param("id"));
+    if (!objective.success) return c.json({ error: "not an account id" }, 400);
+    return answer(c, objective.data, (view) => sponsor(objective.data, view, c.req.url));
   });
 
   /** The evaluation as one JSON answer: the review and the evaluator's unsigned calls, when the results support a verdict. */

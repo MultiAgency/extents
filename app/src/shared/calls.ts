@@ -118,6 +118,28 @@ export const fundIntent = (objective: string, params: Params, amount: bigint) =>
   msg: fundMsg(params),
 });
 
+/** What a signed call asks the objective to do: the contract's `auth_call::Action`. */
+export type Action =
+  | { action: "commit" }
+  | { action: "withdraw" }
+  | { action: "deliver"; data: { hash: string } }
+  | { action: "attest"; data: Attestation }
+  | { action: "cancel" };
+
+/**
+ * The same call as a Verifier `auth_call` intent, for whoever signs intents
+ * rather than NEAR transactions: signed by the acting account (its
+ * `signer_id`) and relayed with `execute_intents`. The objective accepts it
+ * only when `params.auth_caller` is that Verifier. An attestation or a
+ * cancellation sends payouts, so it asks the Verifier for their gas.
+ */
+export const authCall = (objective: string, params: Params, action: Action) => ({
+  intent: "auth_call" as const,
+  contract_id: objective,
+  msg: JSON.stringify({ params, action }),
+  ...(action.action === "attest" || action.action === "cancel" ? { min_gas: (BigInt(attestTgas(params)) * 10n ** 12n).toString() } : {}),
+});
+
 /**
  * A call as a raw NEAR function call: gas in gas units and deposit in
  * yoctoNEAR, both decimal strings. These are the field names and units of the

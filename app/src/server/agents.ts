@@ -1,15 +1,15 @@
 /**
  * Extents for other agents, as plain JSON: drafting an objective, taking a
- * contributor's part in one and reviewing one, each down to its exact unsigned transactions and the link
+ * contributor's or the sponsor's part in one and reviewing one, each down to its exact unsigned transactions and the link
  * where a person can do the same in their browser. Agents prepare; only
  * wallets and DAOs sign. Documented for models in /llms.txt and /skill.md.
  */
 import { EventType, type RunErrorEvent, type RunFinishedEvent } from "@ag-ui/core";
 
 import { attestationOf, type Dao } from "../shared/attest.ts";
-import { calls, describe, fundIntent } from "../shared/calls.ts";
-import { objectiveCodeHash } from "../shared/config.ts";
-import { slotOf } from "../shared/delivery.ts";
+import { authCall, calls, describe, fundIntent, type Action } from "../shared/calls.ts";
+import { objectiveCodeHash, sponsorMayRelease } from "../shared/config.ts";
+import { holders, openToContributors, slotOf } from "../shared/delivery.ts";
 import { launchFragment } from "../shared/launch-link.ts";
 import { buildObjective, type Proposal } from "../shared/objective.ts";
 import { randomSalt, type Params } from "../shared/params.ts";
@@ -42,11 +42,22 @@ export function draft(p: Proposal, sponsor: string, given: string | undefined, o
   };
 }
 
-/** An objective as `describeObjective` reads it, as far as a contributor's part needs. */
-export interface ContributorView {
+/** An objective as `describeObjective` reads it, as far as a contributor's or the sponsor's part needs. */
+export interface ObjectiveView {
   documents?: { params: Params; spec?: { max_report_bytes?: number } };
-  state?: { committed?: number; delivered?: number; taken?: number; deadline?: string; outcome?: string };
+  state?: { funded?: string; committed?: number; delivered?: number; taken?: number; deadline?: string; outcome?: string };
 }
+
+type State = NonNullable<ObjectiveView["state"]>;
+
+const step = (name: string, signer: string, call: Parameters<typeof describe>[0]) => ({ step: name, signer, ...describe(call) });
+
+/** Whether the last moment to attest has passed: the deadline, or the acceptance window that extended it. */
+const expired = (params: Params, state: State, now: number) => Date.parse(state.deadline ?? params.deadline) < now;
+
+/** Anyone may close: it expires an objective past its last moment to attest, retries payouts, and deletes it once settled. */
+const closing = (objective: string, params: Params, state: State, now: number) =>
+  state.outcome || expired(params, state, now) ? [step("close", "anyone", calls.close(objective, params))] : [];
 
 /** What a contributor sends: who they are, the report once written, and its delivery once that is final. */
 export interface Contribution {
@@ -64,7 +75,7 @@ export interface Contribution {
  * the account has no part in the objective.
  */
 // Its `next` lines restate, for the agent: docs/spec.md, "A holder may withdraw until it delivers"; docs/spec.md, "A delivery is final"
-export function contribute(objective: string, view: ContributorView, c: Contribution, origin: string, now = Date.now()) {
+export function contribute(objective: string, view: ObjectiveView, c: Contribution, origin: string, now = Date.now()) {
   if (!view.documents) throw new Error("This objective has no published terms.");
   const { params, spec } = view.documents;
   const state = view.state ?? {};
@@ -73,28 +84,23 @@ export function contribute(objective: string, view: ContributorView, c: Contribu
   if (slot < 0) throw new Error(`${c.account} holds no slot in this objective and backs none that is open to it yet.`);
   const committed = Boolean(((state.committed ?? 0) >> slot) & 1);
   const delivered = Boolean(((state.delivered ?? 0) >> slot) & 1);
-  // commitment and delivery end at the original deadline; only the time to attest moves
-  const open = !state.outcome && Date.parse(params.deadline) >= now;
+  const open = openToContributors(params, state, now);
   const sha256 = c.report === undefined ? undefined : reportHash(c.report);
-  const step = (name: string, call: Parameters<typeof describe>[0]) => ({
-    step: name,
-    signer: c.account,
-    ...describe(call),
-  });
+  const sign = (name: string, call: Parameters<typeof describe>[0]) => step(name, c.account, call);
 
   let transactions: ReturnType<typeof step>[] = [];
   let next: string;
   if (delivered) {
     if (c.report !== undefined && c.delivery_tx) {
       const deliverable = { text: c.report, delivery_tx: c.delivery_tx, delivery_signer: c.delivery_signer ?? c.account };
-      transactions = [step("publish", calls.publish(objective, { deliverable }))];
+      transactions = [sign("publish", calls.publish(objective, { deliverable }))];
       next =
         "Sign publish. The evaluator reads the report from it and checks report_sha256 against the delivered hash: a mismatch counts as a missing report.";
     } else
       next = resolved || "Send report and delivery_tx (the finalized ob_deliver transaction) to get the call that publishes the report.";
   } else if (!open) next = resolved || "The deadline to commit and deliver has passed.";
   else if (!committed) {
-    transactions = [step("commit", calls.commit(objective, params))];
+    transactions = [sign("commit", calls.commit(objective, params))];
     next = "Sign commit. Until you deliver, you can give the slot back with withdraw.";
   } else if (sha256 === undefined) next = "Send report to get the call that delivers its hash, or sign withdraw to give the slot back.";
   else {
@@ -102,15 +108,13 @@ export function contribute(objective: string, view: ContributorView, c: Contribu
     const bytes = new TextEncoder().encode(c.report).byteLength;
     if (spec?.max_report_bytes !== undefined && bytes > spec.max_report_bytes)
       throw new Error(`The report is ${bytes} bytes; these terms allow ${spec.max_report_bytes}.`);
-    transactions = [step("deliver", calls.deliver(objective, params, sha256))];
+    transactions = [sign("deliver", calls.deliver(objective, params, sha256))];
     next =
       "Sign deliver and keep the exact report. Once the transaction is final, send report and delivery_tx to get the call that publishes it. A delivery cannot be changed.";
   }
   // whoever holds the slot may give it back until they deliver
-  if (open && committed && !delivered) transactions.push(step("withdraw", calls.withdraw(objective, params)));
-  // anyone may close: it expires an objective past its last moment to attest, retries payouts, and deletes it once settled
-  if (state.outcome || Date.parse(state.deadline ?? params.deadline) < now)
-    transactions.push({ ...step("close", calls.close(objective, params)), signer: "anyone" });
+  if (open && committed && !delivered) transactions.push(sign("withdraw", calls.withdraw(objective, params)));
+  transactions.push(...closing(objective, params, state, now));
 
   return {
     objective,
@@ -122,6 +126,63 @@ export function contribute(objective: string, view: ContributorView, c: Contribu
     ...(sha256 ? { report_sha256: sha256 } : {}),
     next,
     transactions,
+  };
+}
+
+/**
+ * The sponsor's part after launch: the unsigned call that cancels while
+ * nobody has committed, then the one that releases the payment once every
+ * slot delivered, each also as an `auth_call` intent when the terms let the
+ * Verifier relay one. A sponsor who is the evaluator has no release: the
+ * contract takes its attestation as the verdict.
+ */
+// Its `next` lines restate, for the agent: docs/spec.md, "The sponsor may cancel until someone commits"; docs/spec.md, "The sponsor may release but never fail"
+export function sponsor(objective: string, view: ObjectiveView, origin: string, now = Date.now()) {
+  if (!view.documents) throw new Error("This objective has no published terms.");
+  const { params } = view.documents;
+  const state = view.state ?? {};
+  const funded = state.funded ?? "0";
+  const slots = holders(params, state.taken);
+  const without = (mask = 0) => slots.filter((_, i) => !((mask >> i) & 1)).join(", ");
+  const sign = (name: string, call: Parameters<typeof describe>[0]) => step(name, params.sponsor, call);
+
+  // a sponsor that signs intents rather than NEAR transactions: the same act, relayed by the Verifier
+  const intent = (action: Action) => (params.auth_caller ? authCall(objective, params, action) : undefined);
+
+  let transactions: ReturnType<typeof step>[] = [];
+  let cancel_intent: ReturnType<typeof intent>;
+  let release_intent: ReturnType<typeof intent>;
+  let next: string;
+  if (state.outcome) next = `The objective resolved as ${state.outcome}.`;
+  else if (expired(params, state, now)) next = "The last moment to attest has passed. Sign close to settle the escrow.";
+  else if (!state.committed) {
+    transactions = [sign("cancel", calls.cancel(objective, params))];
+    cancel_intent = intent({ action: "cancel" });
+    next =
+      BigInt(funded) > 0n
+        ? "Nobody has committed. Sign cancel to take the funding back: the objective resolves as cancelled, and it cannot be undone. Once a contributor commits, the funding is locked."
+        : "Not funded yet: sign fund, or fund_intent, from POST /api/draft. Or sign cancel to end the objective as cancelled, which cannot be undone.";
+  } else if (without(state.committed)) next = `Waiting for ${without(state.committed)} to commit. The funding is locked while a slot is committed.`;
+  else if (without(state.delivered)) next = `Waiting for ${without(state.delivered)} to deliver. The funding is locked while a slot is committed.`;
+  else if (params.sponsor === params.evaluator)
+    next = `Every contributor delivered. You are the evaluator, so your attestation is the verdict: get it from POST /api/objective/${objective}/review.`;
+  else if (!sponsorMayRelease()) next = `Every contributor delivered. Waiting for ${params.evaluator}'s verdict.`;
+  else {
+    transactions = [sign("release", calls.attest(objective, params, { verdict: "achieved" }))];
+    release_intent = intent({ action: "attest", data: { verdict: "achieved" } });
+    next = `Every contributor delivered. Sign release to pay them by their shares now, without ${params.evaluator}'s verdict: the objective resolves as released, and it cannot be undone. Or wait for the verdict.`;
+  }
+  transactions.push(...closing(objective, params, state, now));
+
+  return {
+    objective,
+    page: pageOf(origin, objective),
+    sponsor: params.sponsor,
+    funded,
+    next,
+    transactions,
+    ...(cancel_intent ? { cancel_intent } : {}),
+    ...(release_intent ? { release_intent } : {}),
   };
 }
 

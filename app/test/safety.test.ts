@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { assertFundingMayStart, readLaunch, writeLaunch } from "../src/web/launch-store.ts";
-import { deliveryHash, holders, verifyReports } from "../src/shared/delivery.ts";
+import { deliveryHash, holders, openToContributors, verifyReports } from "../src/shared/delivery.ts";
 import { reportHash } from "../src/shared/review.ts";
 import { Budget } from "../src/server/budget.ts";
 import { publicAddress, publicUrl, evidenceFetch } from "../src/server/evidence-fetch.ts";
@@ -61,6 +61,14 @@ describe("delivery provenance", () => {
     expect(() => verifyReports(["other.testnet"], [report])).toThrow();
     expect(() => verifyReports([contributor], [{ ...report, text: "replacement" }])).toThrow();
     expect(() => verifyReports([contributor, "other.testnet"], [report, report])).toThrow();
+  });
+  // docs/spec.md, "A contributor commits before the deadline"; docs/spec.md, "A holder may withdraw until it delivers"; docs/spec.md, "A delivery is final"
+  test("contributors act until the original deadline or a verdict", () => {
+    const params = { deadline: "2027-03-01T00:00:00Z" } as Params;
+    const deadline = Date.parse(params.deadline);
+    expect(openToContributors(params, undefined, deadline)).toBe(true);
+    expect(openToContributors(params, {}, deadline + 1)).toBe(false);
+    expect(openToContributors(params, { outcome: "failed" }, deadline - 1)).toBe(false);
   });
 });
 

@@ -32,6 +32,14 @@ export function slotOf(params: Params, state: { committed?: number; taken?: numb
   );
 }
 
+/**
+ * Whether contributors can still commit, withdraw and deliver at `now` (ms):
+ * before a verdict and `params.deadline`. An acceptance window moves only the
+ * last moment to attest, never this.
+ */
+export const openToContributors = (params: Params, state: { outcome?: string } | undefined, now: number): boolean =>
+  !state?.outcome && Date.parse(params.deadline) >= now;
+
 /** Who holds each slot whose delivery is on chain, in contributor order. */
 export const deliveredBy = (params: Params, state?: { delivered?: number; taken?: number }): string[] =>
   holders(params, state?.taken).filter((_, i) => ((state?.delivered ?? 0) >> i) & 1);

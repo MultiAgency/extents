@@ -1,10 +1,11 @@
 /** Extents for other agents: the JSON API /llms.txt documents, against the app in process. */
-import { beforeAll, describe, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { createApp } from "../src/server/app.ts";
 import { BudgetError } from "../src/server/budget.ts";
 import type { Chain } from "../src/server/tools.ts";
 import { attestArgs, attestationOf, attestProposal } from "../src/shared/attest.ts";
+import { authCall } from "../src/shared/calls.ts";
 import { parseLaunchFragment, type LaunchLink } from "../src/shared/launch-link.ts";
 import { buildObjective, proposal } from "../src/shared/objective.ts";
 import { reportHash } from "../src/shared/review.ts";
@@ -338,5 +339,118 @@ describe("contribute", () => {
     expect((await contribute({})).status).toBe(400);
     view = { deployed: false };
     expect((await contribute({ account: "organizer.testnet" })).value).toEqual({ error: "This objective has no published terms." });
+  });
+});
+
+describe("sponsor", () => {
+  const o = buildObjective(
+    proposal.parse({ ...PROPOSAL, contributors: { "organizer.testnet": 70, "venue.testnet": 30 } }),
+    "customer.testnet",
+    "12".repeat(32),
+    CODE_HASH,
+  );
+  const params = JSON.parse(JSON.stringify(o.params));
+  const at = (state: Record<string, unknown>, terms = params) => (view = { deployed: true, state, documents: { params: terms, spec: o.spec } });
+  const sponsor = async () => (await post(`/api/objective/${o.accountId}/sponsor`, {})).value;
+  const steps = (value: { transactions: { step: string }[] }) => value.transactions.map((t) => t.step);
+  beforeAll(() => void (process.env.PUBLIC_SPONSOR_RELEASE = "1"));
+  afterAll(() => void delete process.env.PUBLIC_SPONSOR_RELEASE);
+
+  // docs/spec.md, "The sponsor may cancel until someone commits"
+  test("while nobody has committed, the sponsor gets ob_cancel", async () => {
+    at({ funded: "5000000" });
+    const value = await sponsor();
+    expect(value).toMatchObject({ sponsor: "customer.testnet", funded: "5000000", page: `https://extents.test/o/${o.accountId}` });
+    expect(value.transactions).toMatchObject([
+      {
+        step: "cancel",
+        signer: "customer.testnet",
+        receiver: o.accountId,
+        method: "ob_cancel",
+        args: { params },
+        near_call: { receiver_id: o.accountId, method_name: "ob_cancel", args: { params } },
+      },
+    ]);
+    expect(value.next).toMatch(/cancel/);
+
+    at({ funded: "0" });
+    const unfunded = await sponsor();
+    expect(steps(unfunded)).toEqual(["cancel"]);
+    expect(unfunded.next).toMatch(/not funded/i);
+  });
+
+  // docs/spec.md, "Only the Verifier relays signed calls"
+  test("a sponsor who signs intents gets the same cancel and release as auth_call intents", async () => {
+    at({ funded: "5000000" });
+    const cancelling = await sponsor();
+    expect(cancelling.cancel_intent).toEqual(authCall(o.accountId, params, { action: "cancel" }));
+    expect(JSON.parse(cancelling.cancel_intent.msg)).toEqual({ params, action: { action: "cancel" } });
+    expect(cancelling.release_intent).toBeUndefined();
+
+    at({ funded: "5000000", committed: 3, delivered: 3 });
+    const releasing = await sponsor();
+    expect(releasing.release_intent).toEqual(authCall(o.accountId, params, { action: "attest", data: { verdict: "achieved" } }));
+    expect(releasing.cancel_intent).toBeUndefined();
+
+    // terms with no auth_caller refuse every signed call, so none is offered
+    const { auth_caller: _, ...direct } = params;
+    at({ funded: "5000000" }, direct);
+    const unrelayed = await sponsor();
+    expect(unrelayed.transactions).toMatchObject([{ step: "cancel" }]);
+    expect(unrelayed.cancel_intent).toBeUndefined();
+  });
+
+  // docs/spec.md, "The sponsor may cancel until someone commits"; docs/spec.md, "Paying out needs every slot delivered"
+  test("a commitment locks the funding: nothing to sign until every slot delivered", async () => {
+    at({ funded: "5000000", committed: 1 });
+    const value = await sponsor();
+    expect(value.transactions).toEqual([]);
+    expect(value.next).toMatch(/venue\.testnet to commit/);
+
+    at({ funded: "5000000", committed: 3, delivered: 1 });
+    const delivering = await sponsor();
+    expect(delivering.transactions).toEqual([]);
+    expect(delivering.next).toMatch(/venue\.testnet to deliver/);
+  });
+
+  // docs/spec.md, "The sponsor may release but never fail"
+  test("once every slot delivered, the sponsor gets its own ob_attest achieved, with no review hash", async () => {
+    at({ funded: "5000000", committed: 3, delivered: 3 });
+    const value = await sponsor();
+    expect(value.transactions).toMatchObject([{ step: "release", signer: "customer.testnet", receiver: o.accountId, method: "ob_attest" }]);
+    expect(value.transactions[0].args).toEqual(attestArgs(params, { verdict: "achieved" }));
+    expect(value.next).toMatch(/released/);
+  });
+
+  test("a build without the release, or a sponsor who is the evaluator, is offered none", async () => {
+    at({ funded: "5000000", committed: 3, delivered: 3 }, { ...params, evaluator: "customer.testnet" });
+    const judging = await sponsor();
+    expect(judging.transactions).toEqual([]);
+    expect(judging.next).toMatch(/\/review/);
+
+    delete process.env.PUBLIC_SPONSOR_RELEASE;
+    at({ funded: "5000000", committed: 3, delivered: 3 });
+    const waiting = await sponsor();
+    process.env.PUBLIC_SPONSOR_RELEASE = "1";
+    expect(waiting.transactions).toEqual([]);
+    expect(waiting.next).toMatch(/agency\.testnet/);
+  });
+
+  test("past the last moment to attest, or once resolved, only close remains", async () => {
+    at({ funded: "5000000", committed: 3, delivered: 3, deadline: "2020-01-01T00:00:00Z" });
+    expect((await sponsor()).transactions).toMatchObject([{ step: "close", signer: "anyone", method: "ob_close" }]);
+    // an acceptance window keeps the release open past the original deadline
+    at({ funded: "5000000", committed: 3, delivered: 3, deadline: "2999-01-01T00:00:00Z" }, { ...params, deadline: "2020-01-01T00:00:00Z" });
+    expect(steps(await sponsor())).toEqual(["release"]);
+    at({ funded: "0", outcome: "cancelled" });
+    const cancelled = await sponsor();
+    expect(cancelled.next).toBe("The objective resolved as cancelled.");
+    expect(steps(cancelled)).toEqual(["close"]);
+  });
+
+  test("an unpublished objective and what isn't an account are refused in words", async () => {
+    view = { deployed: false };
+    expect(await sponsor()).toEqual({ error: "This objective has no published terms." });
+    expect((await post("/api/objective/Not%20An%20Account/sponsor", {})).status).toBe(400);
   });
 });

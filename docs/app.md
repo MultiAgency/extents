@@ -92,7 +92,7 @@ be checked against the same bytes. `bun scripts/replay.ts` replays a review from
 ## For agents
 
 - The agent API, plain JSON: `POST /api/tools/:name` (the customer agent's tools), `POST /api/draft` (exact `Params`,
-  address, unsigned transactions, and a launch link whose fragment carries the terms to the sponsor's browser), `POST /api/deploy` (with the spec, the deployer also publishes the terms; the reader accepts the spec from the sponsor or the deployer, pinned by `spec_hash` either way, so changing `DEPLOYER_ACCOUNT_ID` leaves terms the old deployer published unread), `POST /api/objective/:id/contribute` (a contributor's commit, withdrawal, delivery and report publication, one step at a time), and `POST /api/objective/:id/review` (the review and the
+  address, unsigned transactions, and a launch link whose fragment carries the terms to the sponsor's browser), `POST /api/deploy` (with the spec, the deployer also publishes the terms; the reader accepts the spec from the sponsor or the deployer, pinned by `spec_hash` either way, so changing `DEPLOYER_ACCOUNT_ID` leaves terms the old deployer published unread), `POST /api/objective/:id/contribute` (a contributor's commit, withdrawal, delivery and report publication, one step at a time), `POST /api/objective/:id/sponsor` (the sponsor's [cancel](spec.md#the-sponsor-may-cancel-until-someone-commits) while nobody has committed, and its [release](spec.md#the-sponsor-may-release-but-never-fail) once every slot delivered, offered under `PUBLIC_SPONSOR_RELEASE` as on the page; each also as a Verifier `auth_call` intent when the terms name an [`auth_caller`](spec.md#only-the-verifier-relays-signed-calls)), and `POST /api/objective/:id/review` (the review and the
   unsigned calls that publish and attest it, or propose it to a DAO evaluator). Agents prepare; wallets and DAOs sign.
   Every answer about an objective links its page, `/o/<objective>`, where people act in their own wallets.
   Every unsigned call also carries `near_call`: the same call with gas in gas units and deposit in yoctoNEAR, under the
@@ -178,7 +178,8 @@ that metadata is not a runtime gate or proof that tests ran.
 `PUBLIC_SPONSOR_RELEASE=1` shows the sponsor a "Release payment" control once every contributor delivered: an
 `ob_attest` achieved signed by the sponsor, which resolves the objective as `released`. Set it only with the code hash of
 a build that has that outcome, such as `FPkPcDq1…` (commit `541a4e8`); the earlier `4GxG7Nye…` build refuses a sponsor's
-attestation.
+attestation. A sponsor who may propose to an evaluator DAO sees the control beside the evaluator's part; one who is
+the evaluator itself does not, since the contract takes its attestation as the verdict.
 
 ## Delivery proof
 
