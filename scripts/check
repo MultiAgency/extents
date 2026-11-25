@@ -51,11 +51,22 @@ skip() { printf -- '- %-14s       %s\n' "$1" "$2"; }
 
 stage rules app pnpm exec vitest run test/rules.test.ts
 stage fmt . cargo fmt --all -- --check
+# the two crates outside the workspace, which `--all` does not reach; both are checked, whichever fails
+stage fmt-e2e . bash -c 'rc=0; for d in e2e/outlayer-evaluator e2e/outlayer-attestation; do
+  (cd "$d" && cargo fmt --check) || rc=1; done; exit $rc'
 stage clippy . cargo clippy --workspace --all-targets -- -D warnings
 stage clippy-wasm . cargo clippy -p extents-objective --target wasm32-unknown-unknown --features=contract -- -D warnings
 stage rust-tests . cargo test --workspace
-# the two crates outside the workspace: the evaluator builds for wasm32-wasip2 by default, and its tests run on
-# the host; the attestation verifier has no tests, so clippy is what notices it no longer building
+# the two crates outside the workspace, which `--workspace` does not reach, at clippy's default lints, not the
+# workspace's. The evaluator's clippy is on the target it is built for, wasm32-wasip2: the host build leaves out the
+# code that signs. It is skipped, not installed, when the pinned toolchain lacks that target; CI runs it. The
+# evaluator's tests run on the host. The attestation verifier has no tests, so clippy is what notices it no longer
+# building.
+if [[ -d "$(cd "$root" && rustc --print sysroot 2>/dev/null)/lib/rustlib/wasm32-wasip2" ]]; then
+  stage evaluator-lint e2e/outlayer-evaluator cargo clippy --locked --all-targets -- -D warnings
+else
+  skip evaluator-lint "needs the wasm32-wasip2 target: rustup target add wasm32-wasip2"
+fi
 stage evaluator e2e/outlayer-evaluator cargo test --locked --target "$(rustc -vV | sed -n 's/host: //p')"
 stage attestation e2e/outlayer-attestation cargo clippy --locked --all-targets -- -D warnings
 if $evaluator_build; then
@@ -90,10 +101,11 @@ case "$first_failure" in
   "") echo "next: all green" ;;
   rules) echo "next: a rule in docs/spec.md has no test citing it, or a citation or link names no heading; see the log" ;;
   fmt) echo "next: run cargo fmt --all" ;;
-  clippy | clippy-wasm | attestation) echo "next: fix the clippy findings in the log; never silence one without a reason" ;;
+  fmt-e2e) echo "next: run cargo fmt in e2e/outlayer-evaluator and e2e/outlayer-attestation" ;;
+  clippy | clippy-wasm | evaluator-lint | attestation) echo "next: fix the clippy findings in the log; never silence one without a reason" ;;
   rust-tests) echo "next: fix the failing Rust test in the log; a failing vector means a format changed (AGENTS.md)" ;;
   evaluator) echo "next: fix the failing evaluator test in the log" ;;
-  evaluator-build) echo "next: the evaluator's build is not the recorded one; if its sources changed on purpose, record the hash the log prints in e2e/outlayer-evaluator/wasm.sha256" ;;
+  evaluator-build) echo "next: the evaluator's build is not the recorded one; if its sources changed on purpose, record the hash build.sh prints on a line of its own, alone, in e2e/outlayer-evaluator/wasm.sha256" ;;
   model) echo "next: the log ends in the state an invariant rejects; fix the contract's rule or the model, never the seed" ;;
   model-replay) echo "next: the contract and the model disagree; rerun with the log's QUINT_SEED and QUINT_VERBOSE=1 to see the step" ;;
   typecheck) echo "next: fix the type errors in the log" ;;

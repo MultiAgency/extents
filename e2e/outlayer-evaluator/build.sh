@@ -23,10 +23,21 @@ case "${1:-}" in
   *) echo "usage: $0 [--check]" >&2; exit 2 ;;
 esac
 
-# rust:1.97.1-slim-bookworm, linux/amd64: the toolchain of rust-toolchain.toml.
+# rust:1.97.1-slim-bookworm, linux/amd64: the toolchain of rust-toolchain.
 IMAGE="rust@sha256:39f68a3e8e3ff425f8945ffa91128e60ff930d53e17fbb5214e95824bdd46f1b"
 
 here=$(cd "$(dirname "$0")" && pwd)
+
+# Read before the build, so a missing or malformed record fails at once. The file
+# holds the bare hash and nothing else (a CR is ignored): a `sha256sum` line would
+# commit the path of someone's checkout.
+if $check; then
+  recorded=$(tr -d '\r' <"$here/wasm.sha256")
+  if ! [[ "$recorded" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "e2e/outlayer-evaluator/wasm.sha256 must hold only a sha256 in lowercase hex, not: '$recorded'" >&2
+    exit 1
+  fi
+fi
 root=$(cd "$here/../.." && pwd)
 out="$root/target/outlayer-evaluator/reproducible"
 mkdir -p "$out"
@@ -51,11 +62,11 @@ fi
 echo "$hash  $wasm"
 
 if $check; then
-  recorded=$(cat "$here/wasm.sha256")
   if [ "$hash" != "$recorded" ]; then
     echo "not the hash recorded in e2e/outlayer-evaluator/wasm.sha256: $recorded" >&2
-    echo "If the program's sources changed on purpose, record the new hash there:" >&2
-    echo "it is another program, with another evaluator account." >&2
+    echo "If the program's sources changed on purpose, record the new hash there, alone:" >&2
+    echo "$hash" >&2
+    echo "It is another program, with another evaluator account." >&2
     exit 1
   fi
 fi
