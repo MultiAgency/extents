@@ -53,8 +53,8 @@ jobs:
         working-directory: e2e/outlayer-evaluator
       - run: cargo fmt --check
         working-directory: e2e/outlayer-attestation
-      # the crate builds for wasm32-wasip2 by default, the only target that compiles the code that signs; the pinned
-      # toolchain does not list it, so it is added here rather than for every build of the contract
+      # at clippy's default lints, not the workspace's; on the target the crate is built for, wasm32-wasip2, since the
+      # host build leaves out the code that signs. The pinned toolchain does not list that target.
       - run: |
           rustup target add wasm32-wasip2
           cargo clippy --locked --all-targets -- -D warnings
