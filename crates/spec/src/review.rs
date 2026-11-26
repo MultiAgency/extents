@@ -71,6 +71,17 @@ pub struct Evidence {
     /// SHA-256 of the response body.
     #[serde_as(as = "Hex")]
     pub sha256: Hash,
+    /// The HTTP status of the final response. Absent when not recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+    /// The final response's `Content-Type` header, verbatim. Absent when the
+    /// response had none: there is no encodable default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    /// Where the fetch ended, when a redirect was followed; `url` stays the
+    /// cited one. Absent when the cited page answered itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,6 +186,11 @@ impl Review {
             for e in &r.evidence {
                 if !(e.url.starts_with("https://") || e.url.starts_with("http://")) {
                     return Err(Error::InvalidEvidence(e.url.clone()));
+                }
+                if let Some(f) = &e.final_url {
+                    if !(f.starts_with("https://") || f.starts_with("http://")) {
+                        return Err(Error::InvalidEvidence(f.clone()));
+                    }
                 }
             }
             let fetches = matches!(

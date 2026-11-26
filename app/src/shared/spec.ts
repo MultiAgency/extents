@@ -80,7 +80,16 @@ export const review = z.strictObject({
       criterion_id: z.string(),
       outcome,
       detail: z.string(),
-      evidence: z.array(z.strictObject({ url: z.string(), sha256: hash })),
+      evidence: z.array(
+        z.strictObject({
+          url: z.string(),
+          sha256: hash,
+          // optional, and left out when unknown: absent is the only way to say "not recorded"
+          status: z.number().int().min(100).max(599).optional(),
+          content_type: z.string().optional(),
+          final_url: z.string().optional(),
+        }),
+      ),
     }),
   ),
   llm_calls: z.array(
@@ -320,6 +329,9 @@ export function validateReview(r: Review, s: Spec): void {
     for (const e of res.evidence) {
       if (!e.url.startsWith("https://") && !e.url.startsWith("http://")) {
         fail(`evidence url ${JSON.stringify(e.url)} is not http(s)`);
+      }
+      if (e.final_url !== undefined && !e.final_url.startsWith("https://") && !e.final_url.startsWith("http://")) {
+        fail(`evidence final_url ${JSON.stringify(e.final_url)} is not http(s)`);
       }
     }
     const fetches = ["live_url", "sources", "media"].includes(c!.check.kind);

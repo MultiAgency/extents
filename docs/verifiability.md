@@ -35,11 +35,18 @@ evaluator's retry rule may turn that into a fail, because the contributor answer
 
 ## What the evidence record holds
 
-Each `live_url`, `sources` and `media` result records the evidence it fetched: the URL and the SHA-256 of the response
-body. The URL recorded is the one cited, not where the fetch ended after redirects
-([#25](https://github.com/MultiAgency/extents/issues/25)). Status and content type are not recorded
-([#1](https://github.com/MultiAgency/extents/issues/1)), so a replay checks that the body hashes to the same value, not
-what the server said about it. (source: `fetchPage` and `evidence` in `checks.ts`, `review.ts`, `replay.ts`.)
+Each `live_url`, `sources` and `media` result records the evidence it fetched: the URL cited and the SHA-256 of the
+response body. Beside them it records, each only when the fetch had it, the HTTP `status`, the `content_type` header
+verbatim, and the `final_url` where a redirect ended (kept apart from the cited URL, which replay looks pages up by)
+([#25](https://github.com/MultiAgency/extents/issues/25)). A field the fetch did not have is left out of the review,
+never filled with a default: a page with no content type has no `content_type`, and one that answered itself has no
+`final_url`. Reviews written before these fields keep their hashes.
+
+These are the evaluator's record of what the server said, not archived bytes: the archive keeps only the body. A replay
+checks that the body hashes to the same value and can re-decide from the recorded status and content type what it
+could not before; it cannot check what the server said
+([#1](https://github.com/MultiAgency/extents/issues/1)). (source: `fetchPage` and `evidenceOf` in `checks.ts`,
+`finalUrl` in `evidence-fetch.ts`, `review.rs`, `replay.ts`.)
 
 ## The layers around the checks
 

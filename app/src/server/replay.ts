@@ -6,7 +6,10 @@
  * verifies, and that every criterion whose outcome can be derived from archived bytes comes out the same.
  *
  * What the archive does not keep cannot be replayed, and is reported as inconclusive instead of guessed at: the HTTP
- * status and content type of a fetched page (only its body is stored), and file deliverables.
+ * status and content type of a fetched page (only its body is stored), and file deliverables. A review may record the
+ * status, content type and final URL of each fetch, as the evaluator's own record rather than archived bytes; replay
+ * does not yet re-decide from them, so what they would settle (`media`, pages fetched without passing) stays
+ * inconclusive.
  */
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
