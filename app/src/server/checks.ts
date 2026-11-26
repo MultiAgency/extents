@@ -189,7 +189,11 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
   const check = c.check;
   switch (check.kind) {
     case "contains": {
-      const found = d.text.toLowerCase().includes(check.phrase.toLowerCase());
+      // the reports' own text together: `d.text` heads each report with its contributor, for the model judge only
+      const text = reportsOf(d)
+        .map((r) => r.text)
+        .join("\n\n");
+      const found = text.toLowerCase().includes(check.phrase.toLowerCase());
       const pass = check.absent ? !found : found;
       return result(c, pass ? "pass" : "fail", `"${check.phrase}" ${found ? "found" : "not found"}`);
     }
