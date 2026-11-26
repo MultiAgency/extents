@@ -5,6 +5,7 @@ import { bytesToHex } from "@noble/hashes/utils.js";
 import { describe, expect, test, vi } from "vitest";
 
 import { createApp } from "../src/server/app.ts";
+import { ArchiveFullError } from "../src/server/archive.ts";
 import { evidenceFetch } from "../src/server/evidence-fetch.ts";
 import type { CheckDeps } from "../src/server/checks.ts";
 import type { Chain } from "../src/server/tools.ts";
@@ -364,7 +365,7 @@ describe("/api/evaluate", () => {
           // on the first fetched page
           archive: async (bytes: Uint8Array) => {
             if (new TextDecoder().decode(bytes).includes("Meetup in New York"))
-              throw new Error("The private evidence archive is full; evaluation is paused");
+              throw new ArchiveFullError("The private evidence archive is full; evaluation is paused");
           },
           judge: async () => ({ answer: true, detail: "x", call: { ...CALL, answer: true } }),
         },
@@ -384,5 +385,25 @@ describe("/api/evaluate", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test("an archive already full refuses the evaluation with its reason, before any check", async () => {
+    const r = await check(
+      client(
+        { params: p, spec: SPEC },
+        {
+          state: { delivered: 3 },
+          delivered: BOTH,
+          path: "/api/evaluate",
+          archive: async () => {
+            throw new ArchiveFullError("The private evidence archive is full; evaluation is paused");
+          },
+          judge: async () => ({ answer: true, detail: "x", call: { ...CALL, answer: true } }),
+        },
+      ),
+      { objective: OBJECTIVE },
+    );
+    expect(r.error).toMatch(/archive is full/);
+    expect(r.results).toEqual({});
   });
 });

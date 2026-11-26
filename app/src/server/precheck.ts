@@ -15,7 +15,7 @@ import { buildReview, summarize, type CheckResult, type Delivered } from "../sha
 import { accountId, parseSpec, type Spec } from "../shared/spec.ts";
 import { deliveredBy, holders, verifyReports } from "../shared/delivery.ts";
 import { checksForRun, runCheck, type CheckDeps, type Deliverable } from "./checks.ts";
-import { ArchiveBudgetError, withObjectiveBudget, type ObjectiveUsage } from "./archive.ts";
+import { ArchiveFullError, withObjectiveBudget, type ObjectiveUsage } from "./archive.ts";
 import { canonicalize } from "../shared/jcs.ts";
 import { DeliveryProofError } from "./fastdata.ts";
 import type { Chain } from "./tools.ts";
@@ -86,16 +86,19 @@ const overLimit = (spec: Spec, reports: { contributor: string; text: string }[])
 /** A reason to stop that the caller reads as is. */
 class Refusal extends Error {}
 
-/** The archive an evaluation of `objective` writes to: the shared one, within the objective's share when usage is tracked. */
+/**
+ * The archive an evaluation of `objective` writes to: the shared one, within the objective's share when usage is
+ * tracked. A full archive or a spent share is a refusal the caller reads as is.
+ */
 function objectiveArchive(deps: CheckRunDeps, objective: string): CheckDeps["archive"] {
   const archive = deps.checks.archive;
-  if (!archive || !deps.archiveUsage) return archive;
-  const budgeted = withObjectiveBudget(archive, deps.archiveUsage, objective, deps.archiveObjectiveBytes);
+  if (!archive) return archive;
+  const write = deps.archiveUsage ? withObjectiveBudget(archive, deps.archiveUsage, objective, deps.archiveObjectiveBytes) : archive;
   return async (bytes) => {
     try {
-      await budgeted(bytes);
+      await write(bytes);
     } catch (e) {
-      throw e instanceof ArchiveBudgetError ? new Refusal(e.message) : e;
+      throw e instanceof ArchiveFullError ? new Refusal(e.message) : e;
     }
   };
 }

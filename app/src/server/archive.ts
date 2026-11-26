@@ -20,7 +20,7 @@ export function evidenceArchive(directory: string, limit = 256 * 1024 * 1024) {
       const names = (await readdir(directory)).filter((name) => /^[0-9a-f]{64}$/.test(name));
       const sizes = await Promise.all(names.map(async (name) => (await stat(join(directory, name))).size));
       if (sizes.reduce((a, b) => a + b, 0) + bytes.byteLength > limit)
-        throw new Error("The private evidence archive is full; evaluation is paused");
+        throw new ArchiveFullError("The private evidence archive is full; evaluation is paused");
       await writeFile(path, bytes, { flag: "wx", mode: 0o600 });
     });
     queue = save.catch(() => {});
@@ -31,8 +31,11 @@ export function evidenceArchive(directory: string, limit = 256 * 1024 * 1024) {
 /** What one objective may add to the archive in one process, so a single objective cannot fill it for every other. */
 export const OBJECTIVE_ARCHIVE_BYTES = 64 * 1024 * 1024;
 
-/** The objective's share is spent: a reason to stop that the caller can show as is. */
-export class ArchiveBudgetError extends Error {}
+/** The archive refuses a write for want of room: a reason to stop that the caller can show as is. */
+export class ArchiveFullError extends Error {}
+
+/** The objective's share is spent: the archive is full for this objective. */
+export class ArchiveBudgetError extends ArchiveFullError {}
 
 /**
  * Distinct evidence bytes each objective has asked the archive to keep, by objective: what is stored, and what is being
