@@ -136,7 +136,8 @@ numbers, including grouped and scientific notation, rather than substrings.
 
 These limits are per process, reset on restart, and are service ceilings rather than authenticated account quotas.
 Multi-process/public deployments need equivalent shared gateway limits and restricted network egress. The private
-archive defaults to `app/var/evidence` with a 256 MiB ceiling; set `EVIDENCE_ARCHIVE_DIR` to private persistent storage.
+archive defaults to `app/var/evidence` with a 256 MiB ceiling, of which each objective may add at most 64 MiB per
+process; set `EVIDENCE_ARCHIVE_DIR` to private persistent storage.
 Apply retention and access policy to these potentially sensitive reports, and monitor archive capacity.
 
 Browser launch persistence is required. Web Locks coordinate tabs, typed wallet refusals permit retry, and any
