@@ -117,6 +117,7 @@ evaluator: the app's `live_url` check does not apply the rule.
 - `must_contain` on JSON matches the server's formatting, not the value: the example's phrase passes or fails with
   GitHub's spacing (see [What was run](#what-was-run)).
 - A merged pull request shows that a change landed, not that it is correct.
-- No testnet run (see above): the review is built and validated off chain. Attesting it and paying out needs a funded
-  testnet objective, which needs the e2e tool's testnet account and a manual faucet step. A variant of this objective
-  has since been run on testnet, by the e2e's `outlayer-evaluator` scenario ([`e2e/README.md`](../e2e/README.md)).
+- The app's checks have not judged this objective on testnet: their review is built and validated off chain (see
+  [What was run](#what-was-run)). Attesting it and paying out needs a funded testnet objective, which needs the e2e
+  tool's testnet account and a manual faucet step. The evaluator-program route above did run on testnet, through to
+  payout ([`e2e/README.md`](../e2e/README.md)).
