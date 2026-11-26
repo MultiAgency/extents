@@ -187,6 +187,11 @@ impl Review {
                 if !(e.url.starts_with("https://") || e.url.starts_with("http://")) {
                     return Err(Error::InvalidEvidence(e.url.clone()));
                 }
+                if let Some(status) = e.status
+                    && !(100..=599).contains(&status)
+                {
+                    return Err(Error::InvalidEvidenceStatus(status));
+                }
                 if let Some(f) = &e.final_url
                     && !(f.starts_with("https://") || f.starts_with("http://"))
                 {

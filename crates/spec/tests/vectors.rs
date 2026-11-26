@@ -96,6 +96,24 @@ fn rejected_review(name: &str) -> Error {
     Review::from_json(&vector(&format!("rejected/{name}")), &spec()).unwrap_err()
 }
 
+/// The bounds of a recorded status, as the TypeScript validator holds them.
+#[test]
+fn an_evidence_status_is_an_http_status() {
+    for (status, valid) in [
+        (0, false),
+        (99, false),
+        (100, true),
+        (599, true),
+        (600, false),
+    ] {
+        let mut review: serde_json::Value =
+            serde_json::from_slice(&vector("review-evidence-fetch.json")).unwrap();
+        review["results"][0]["evidence"][0]["status"] = status.into();
+        let parsed = Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec());
+        assert_eq!(parsed.is_ok(), valid, "status {status}");
+    }
+}
+
 /// A fetching check that found nothing to fetch fails without evidence,
 /// its detail saying why.
 #[test]
@@ -190,6 +208,10 @@ fn rejected_reviews() {
     assert!(matches!(
         rejected_review("review-evidence-final-url-not-http.json"),
         Error::InvalidEvidence(u) if u.starts_with("ftp://")
+    ));
+    assert!(matches!(
+        rejected_review("review-evidence-status-out-of-range.json"),
+        Error::InvalidEvidenceStatus(700)
     ));
     assert!(matches!(
         rejected_review("review-missing-evidence.json"),

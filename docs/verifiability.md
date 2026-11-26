@@ -43,8 +43,9 @@ never filled with a default: a page with no content type has no `content_type`, 
 `final_url`. Reviews written before these fields keep their hashes.
 
 These are the evaluator's record of what the server said, not archived bytes: the archive keeps only the body. A replay
-checks that the body hashes to the same value and can re-decide from the recorded status and content type what it
-could not before; it cannot check what the server said
+checks that the body hashes to the same value; it cannot check what the server said. Re-deciding from the recorded
+status and content type what it marks inconclusive today (`media`, and pages fetched without passing) is follow-up
+work, and replay does not do it yet
 ([#1](https://github.com/MultiAgency/extents/issues/1)). (source: `fetchPage` and `evidenceOf` in `checks.ts`,
 `finalUrl` in `evidence-fetch.ts`, `review.rs`, `replay.ts`.)
 
