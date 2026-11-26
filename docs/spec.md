@@ -279,7 +279,8 @@ A `schema` criterion's `json_schema` is JSON Schema draft 2020-12. It may name t
 #### A criterion holds for the deliverable as a whole
 
 With several reports, each criterion has one result for all of them, and their order never decides
-it. `contains` reads the reports' joint text. For a labelled value (`numeric_match`, `live_url`, and
+it. `contains` reads the reports' joint text, without the contributor headings a model judge is
+shown. For a labelled value (`numeric_match`, `live_url`, and
 the figures `sources` checks), every report that states the label must pass, so a conflicting value
 fails the criterion; a label no report states fails. For `schema`, every report's JSON block, or the
 report itself if it is JSON, must pass; a report with neither isn't counted, and the criterion fails

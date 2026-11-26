@@ -341,6 +341,13 @@ describe("several reports, judged as one deliverable", () => {
     expect((await both({ kind: "contains", phrase: "nothing yet", absent: true }, d)).outcome).toBe("fail");
   });
 
+  test("contains reads the reports, not the contributor headings the judge is shown", async () => {
+    const d = joint(["alice.testnet", "Deployed the demo."], ["bob.testnet", "Wrote the docs."]);
+    expect((await both({ kind: "contains", phrase: "testnet", absent: false }, d)).outcome).toBe("fail");
+    expect((await both({ kind: "contains", phrase: "alice", absent: true }, d)).outcome).toBe("pass");
+    expect((await both({ kind: "contains", phrase: "## ", absent: true }, d)).outcome).toBe("pass");
+  });
+
   test("numeric_match: every report that states the label must pass", async () => {
     const check = { kind: "numeric_match", label: "Attendees", min: 30 } as const;
     // agreeing; a report that doesn't state the label isn't counted
