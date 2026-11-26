@@ -26,6 +26,9 @@ describe("crates/spec vectors", () => {
   test("spec hash", () => expect(specHash(spec)).toBe(expected["spec.json"]));
   test("review hash", () => expect(reviewHash(parseReview(vectors("review.json"), spec))).toBe(expected["review.json"]));
 
+  test("a review that records how evidence was fetched is a second valid document", () =>
+    expect(reviewHash(parseReview(vectors("review-evidence-fetch.json"), spec))).toBe(expected["review-evidence-fetch.json"]));
+
   test("judge request, rebuilt byte for byte", () => {
     const v = vectors("judge-request.json") as {
       model: string;

@@ -42,6 +42,8 @@ pub enum Error {
     MissingEvidence(String),
     #[error("evidence url {0:?} is not http(s)")]
     InvalidEvidence(String),
+    #[error("evidence status {0} is not an HTTP status (100 to 599)")]
+    InvalidEvidenceStatus(u16),
     #[error("llm call for criterion {id}: {reason}")]
     InvalidCall { id: String, reason: &'static str },
     #[error("criterion {0}: its outcome is not the majority of its models' answers")]

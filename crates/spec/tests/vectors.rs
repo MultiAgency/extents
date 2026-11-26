@@ -55,6 +55,26 @@ fn review_hash() {
     assert_eq!(hex::encode(review.hash().unwrap()), expected("review.json"));
 }
 
+/// What the evaluator saw of a fetch (status, content type, the address a redirect ended at) is optional:
+/// `review.json` without any of it keeps its hash, and a review that has them is a second valid document.
+// docs/spec.md, "One meaning has one hash"
+#[test]
+fn evidence_may_record_how_it_was_fetched() {
+    let review = Review::from_json(&vector("review-evidence-fetch.json"), &spec()).unwrap();
+    assert_eq!(
+        hex::encode(review.hash().unwrap()),
+        expected("review-evidence-fetch.json")
+    );
+    let e = &review.results[0].evidence[0];
+    assert_eq!(e.status, Some(200));
+    assert_eq!(e.content_type.as_deref(), Some("text/html; charset=utf-8"));
+    assert_eq!(e.final_url.as_deref(), Some("https://lu.ma/example/"));
+    // a page that recorded none of them leaves them out of the canonical form
+    let plain = Review::from_json(&vector("review.json"), &spec()).unwrap();
+    assert!(plain.results[0].evidence[0].final_url.is_none());
+    assert!(!serde_json::to_string(&plain).unwrap().contains("final_url"));
+}
+
 // docs/spec.md, "One meaning has one hash"
 #[test]
 fn hash_ignores_layout() {
@@ -74,6 +94,24 @@ fn rejected_spec(name: &str) -> Error {
 
 fn rejected_review(name: &str) -> Error {
     Review::from_json(&vector(&format!("rejected/{name}")), &spec()).unwrap_err()
+}
+
+/// The bounds of a recorded status, as the TypeScript validator holds them.
+#[test]
+fn an_evidence_status_is_an_http_status() {
+    for (status, valid) in [
+        (0, false),
+        (99, false),
+        (100, true),
+        (599, true),
+        (600, false),
+    ] {
+        let mut review: serde_json::Value =
+            serde_json::from_slice(&vector("review-evidence-fetch.json")).unwrap();
+        review["results"][0]["evidence"][0]["status"] = status.into();
+        let parsed = Review::from_json(&serde_json::to_vec(&review).unwrap(), &spec());
+        assert_eq!(parsed.is_ok(), valid, "status {status}");
+    }
 }
 
 /// A fetching check that found nothing to fetch fails without evidence,
@@ -166,6 +204,14 @@ fn rejected_reviews() {
     assert!(matches!(
         rejected_review("review-missing-empty.json"),
         Error::NotNormalForm
+    ));
+    assert!(matches!(
+        rejected_review("review-evidence-final-url-not-http.json"),
+        Error::InvalidEvidence(u) if u.starts_with("ftp://")
+    ));
+    assert!(matches!(
+        rejected_review("review-evidence-status-out-of-range.json"),
+        Error::InvalidEvidenceStatus(700)
     ));
     assert!(matches!(
         rejected_review("review-missing-evidence.json"),

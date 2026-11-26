@@ -8,6 +8,9 @@ made up; only the format is real.
   form, computed with Python's
   `json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False)`
   (JCS for these documents: ASCII keys, and no number JCS writes differently).
+- `review-evidence-fetch.json`: `review.json` with `status`, `content_type` and
+  `final_url` on some evidence. Those fields are optional and absent from
+  `review.json`, whose hash is unchanged. Hash computed as above.
 - `rejected/`: documents an implementation must refuse. Each is `spec.json` or
   `review.json` with one change, named by the file. The exception is
   `review-achieved-with-skipped.json`, which makes the failing criterion pass

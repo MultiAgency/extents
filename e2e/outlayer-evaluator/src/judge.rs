@@ -144,6 +144,9 @@ fn check(
             let evidence = vec![Evidence {
                 url: url.to_owned(),
                 sha256: Sha256::digest(&body).into(),
+                status: None,
+                content_type: None,
+                final_url: None,
             }];
             let shows = must_contain
                 .as_ref()
@@ -284,7 +287,10 @@ mod tests {
             results[1].evidence,
             [Evidence {
                 url: PULL.into(),
-                sha256: Sha256::digest(MERGED).into()
+                sha256: Sha256::digest(MERGED).into(),
+                status: None,
+                content_type: None,
+                final_url: None,
             }]
         );
     }

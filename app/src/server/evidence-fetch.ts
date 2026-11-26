@@ -45,6 +45,15 @@ async function connection(signal: AbortSignal | undefined): Promise<() => void> 
   });
 }
 
+const finalUrls = new WeakMap<Response, string>();
+
+/**
+ * Where a response from `evidenceFetch` ended, when it followed a redirect. The rebuilt `Response` has no `url` of its
+ * own, and callers reach the transport only through a fetch-shaped function, so this is the way out. Absent for any
+ * other response, including one from a different fetch.
+ */
+export const finalUrl = (response: Response): string | undefined => finalUrls.get(response);
+
 export function publicAddress(address: string): boolean {
   if (isIP(address) === 4) {
     const [a = 0, b = 0] = address.split(".").map(Number);
@@ -154,7 +163,10 @@ async function fetchEvidence(raw: string | URL | Request, init?: RequestInit): P
       request.on("error", reject);
       request.end();
     });
-    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    if (![301, 302, 303, 307, 308].includes(response.status)) {
+      if (hop > 0) finalUrls.set(response, target.href);
+      return response;
+    }
     const location = response.headers.get("location");
     if (!location) throw new Error("evidence redirect has no location");
     url = publicUrl(new URL(location, target).href);

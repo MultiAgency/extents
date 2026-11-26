@@ -8,10 +8,10 @@ vi.mock("node:http", () => ({ request: mocks.request }));
 vi.mock("node:https", () => ({ request: mocks.request }));
 vi.mock("node:dns", () => ({ lookup: mocks.lookup }));
 import { runCheck } from "../src/server/checks.ts";
-import { evidenceFetch, MAX_EVIDENCE_BYTES } from "../src/server/evidence-fetch.ts";
+import { evidenceFetch, finalUrl, MAX_EVIDENCE_BYTES } from "../src/server/evidence-fetch.ts";
 
 const connected: { host: string; address: string }[] = [];
-let responses: { status: number; location?: string; body?: Buffer }[];
+let responses: { status: number; location?: string; body?: Buffer; noType?: boolean }[];
 
 beforeEach(() => {
   connected.length = 0;
@@ -32,7 +32,7 @@ beforeEach(() => {
         const incoming = Object.assign(new PassThrough(), {
           statusCode: next.status,
           headers: {
-            "content-type": "text/plain",
+            ...(next.noType ? {} : { "content-type": "text/plain" }),
             ...(next.location ? { location: next.location } : {}),
           },
         });
@@ -146,4 +146,35 @@ test("waiting for a connection slot is not charged to the cited page's timeout",
   expect(timeouts).toHaveBeenCalledTimes(9);
   holders.forEach((h) => h.abort());
   await Promise.all(held);
+});
+
+test("a followed redirect is reported beside the response, and a direct answer reports none", async () => {
+  responses = [{ status: 301, location: "https://example.net/moved" }, { status: 200, body: Buffer.from("evidence") }];
+  expect(finalUrl(await evidenceFetch("https://example.org/report"))).toBe("https://example.net/moved");
+  responses = [{ status: 200, body: Buffer.from("evidence") }];
+  expect(finalUrl(await evidenceFetch("https://example.org/report"))).toBeUndefined();
+});
+
+test("a live_url that is redirected records the cited URL, where it ended, its status and content type", async () => {
+  const { runCheck } = await import("../src/server/checks.ts");
+  responses = [{ status: 301, location: "https://github.com/" }, { status: 200, body: Buffer.from("GitHub") }];
+  const spec = { v: 1, statement: "s", criteria: [] };
+  const criterion = { id: "site", description: "d", check: { kind: "live_url" as const, label: "Site" } };
+  const result = await runCheck(criterion, spec, { text: "Site: https://www.github.com/" }, { fetch: evidenceFetch as typeof fetch });
+  expect(result.outcome).toBe("pass");
+  expect(result.evidence).toEqual([
+    {
+      url: "https://www.github.com/",
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      status: 200,
+      content_type: "text/plain",
+      final_url: "https://github.com/",
+    },
+  ]);
+  // no redirect, no content type: neither field is written
+  responses = [{ status: 200, body: Buffer.from("GitHub"), noType: true }];
+  const plain = await runCheck(criterion, spec, { text: "Site: https://example.org/" }, { fetch: evidenceFetch as typeof fetch });
+  expect(plain.evidence[0]).not.toHaveProperty("final_url");
+  expect(plain.evidence[0]).not.toHaveProperty("content_type");
+  expect(plain.evidence[0]).toHaveProperty("status", 200);
 });

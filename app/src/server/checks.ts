@@ -8,7 +8,7 @@ import { sha256Hex } from "../shared/jcs.ts";
 import { compileSchema, dataProblem } from "../shared/schema.ts";
 import { readCapped } from "./bounded.ts";
 import { BudgetError } from "./budget.ts";
-import { MAX_EVIDENCE_BYTES, publicUrl } from "./evidence-fetch.ts";
+import { finalUrl, MAX_EVIDENCE_BYTES, publicUrl } from "./evidence-fetch.ts";
 import type { Criterion, Spec } from "../shared/spec.ts";
 import type { CheckResult, LlmCall } from "../shared/review.ts";
 
@@ -47,7 +47,10 @@ export { publicUrl } from "./evidence-fetch.ts";
 
 interface Fetched {
   url: string;
+  /** Where the fetch ended, when a redirect was followed to a different address. */
+  finalUrl?: string;
   ok: boolean;
+  status: number;
   contentType: string;
   text: string;
   sha256: string;
@@ -98,14 +101,29 @@ async function fetchPage(deps: CheckDeps, url: URL, raw: string): Promise<Loaded
   // run as an error, which `streamChecks` records as a skipped check, never as an unreachable host: the retry rule
   // turns those into failures.
   await deps.archive?.(bytes);
+  const ended = finalUrl(res);
   return {
     url: url.href,
+    ...(ended && ended !== url.href ? { finalUrl: ended } : {}),
     ok: res.ok,
+    status: res.status,
     contentType: res.headers.get("content-type") ?? "",
     text: new TextDecoder().decode(bytes),
     sha256: sha256Hex(bytes),
   };
 }
+
+/**
+ * What a review records of a fetched page: the cited URL and the body's hash, and beside them what the server said.
+ * A content type or a final URL the fetch did not have is left out, never defaulted (docs/verifiability.md).
+ */
+const evidenceOf = (p: Fetched): CheckResult["evidence"][number] => ({
+  url: p.url,
+  sha256: p.sha256,
+  status: p.status,
+  ...(p.contentType ? { content_type: p.contentType } : {}),
+  ...(p.finalUrl ? { final_url: p.finalUrl } : {}),
+});
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -276,7 +294,7 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
           const page = await load(deps, url);
           if (typeof page === "string") return { outcome: "fail", detail: named(r, page) };
           if ("unavailable" in page) return { outcome: "unavailable", detail: named(r, page.unavailable) };
-          const evidence = { url: page.url, sha256: page.sha256 };
+          const evidence = evidenceOf(page);
           if (!page.ok) return { outcome: "fail", detail: named(r, `${url} did not load`), evidence };
           if (check.must_contain && !page.text.toLowerCase().includes(check.must_contain.toLowerCase()))
             return { outcome: "fail", detail: named(r, `${url} loads but does not show "${check.must_contain}"`), evidence };
@@ -305,7 +323,7 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
       const pages = fetched
         .filter((p): p is Fetched => typeof p !== "string" && "ok" in p && p.ok)
         .filter((p, i, all) => all.findIndex((q) => q.sha256 === p.sha256) === i);
-      const evidence = pages.map((p) => ({ url: p.url, sha256: p.sha256 }));
+      const evidence = pages.map(evidenceOf);
       if (pages.length < check.min)
         return unavailable
           ? unreachable(c, `${pages.length} of the needed ${check.min} cited links load; some evidence is unavailable`, evidence)
@@ -341,7 +359,7 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
       const loaded = fetched.filter(
         (p): p is Fetched => typeof p !== "string" && "ok" in p && p.ok && check.kinds.some((k) => p.contentType.startsWith(`${k}/`)),
       );
-      const evidence = loaded.map((p) => ({ url: p.url, sha256: p.sha256 }));
+      const evidence = loaded.map(evidenceOf);
       return loaded.length >= check.min
         ? result(c, "pass", `${loaded.length} ${check.kinds.join(" or ")} item${loaded.length === 1 ? "" : "s"} load`, evidence)
         : unavailable

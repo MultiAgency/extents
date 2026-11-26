@@ -159,7 +159,12 @@ describe("checks", () => {
     const r = await run({ kind: "live_url", label: "Event page", must_contain: "new york" });
     expect(r.outcome).toBe("pass");
     expect(r.evidence).toEqual([
-      { url: "https://lu.ma/nyc", sha256: bytesToHex(sha256(new TextEncoder().encode(PAGES["https://lu.ma/nyc"]!.body))) },
+      {
+        url: "https://lu.ma/nyc",
+        sha256: bytesToHex(sha256(new TextEncoder().encode(PAGES["https://lu.ma/nyc"]!.body))),
+        status: 200,
+        content_type: "text/html",
+      },
     ]);
     expect((await run({ kind: "live_url", label: "Event page", must_contain: "Chicago" })).outcome).toBe("fail");
   });

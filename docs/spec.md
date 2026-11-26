@@ -84,7 +84,8 @@ the reports together, never whichever comes first.
 
 A review records: the objective account, the spec hash, each contributor's deliverable by
 hash, one result per criterion (`pass`, `fail`, `skipped`), the evidence fetched (URL and
-SHA-256 of each response body), and every model call (criterion, model, answer, request and
+SHA-256 of each response body, and optionally the HTTP status, the content type and, after a redirect, the URL it
+ended at), and every model call (criterion, model, answer, request and
 response hashes, provider signature).
 
 A review is valid only if [its verdict follows from its results](#a-verdict-follows-its-results).
