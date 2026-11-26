@@ -103,6 +103,14 @@ is that URL. It ran on testnet for pull request 13: the `outlayer-evaluator` sce
 [`e2e/README.md`](../e2e/README.md). It holds only for a URL known when the objective is launched, and only under that
 evaluator: the app's `live_url` check does not apply the rule.
 
+- *The pull request must exist at launch*, since its URL is in the spec.
+- *"Checks passed" is still not asserted, and the same pin cannot assert it.* GitHub's combined-status and check-run
+  URLs name a commit or a branch. The merged commit is not known until the merge, a branch moves with every push, and
+  the pull request's head commit shows the checks reported for that commit, not for what was merged.
+- *Text the contributor writes into the pull request does not pass.* GitHub's JSON escapes the quotes inside its
+  strings, so `"merged":true` written in the title or body is served as `\"merged\":true`. The program's test
+  `text_a_contributor_wrote_into_the_pull_request_does_not_pass` covers the body.
+
 ## Limits
 
 - Anonymous requests to `api.github.com` are rate limited by GitHub; an evaluator would need to account for that.
