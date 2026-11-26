@@ -75,7 +75,7 @@ attested for it.
 | Claim | Faked by | Closed by |
 | --- | --- | --- |
 | "The pull request is merged" | Citing a page the contributor hosts that contains `"merged": true`. | Holding the evidence to a source the contributor does not host. |
-| The pull request is the right one | Citing any merged pull request. The spec cannot name the repository or number the evidence must come from. | The same: a pin that names the repository. |
+| The pull request is the right one | Citing any merged pull request. The spec cannot name the repository or number the evidence must come from. | A pin that names the repository, with a second `live_url` criterion on the same label whose `must_contain` is the objective's id, so a pull request that does not name the objective fails. The contributor's own earlier merged pull request still passes if they edit its description to name the objective; only a merge time compared with the launch could rule that out. |
 | Checks passed | Not expressible (finding 4). | A new check kind, or evaluator-side lookup. |
 | Authorship | Citing someone else's merged pull request. | Nothing in the current checks. |
 
@@ -85,8 +85,10 @@ Each option is a design for the maintainers to weigh; none is implemented here.
 
 1. **Pin where `live_url` evidence may come from.** An optional prefix on the criterion
    ([#5](https://github.com/MultiAgency/extents/issues/5), tried in [#14](https://github.com/MultiAgency/extents/pull/14)),
-   for example `https://api.github.com/repos/<owner>/<repo>/pulls/`. That closes the first two rows above. #14 was closed
-   because a redirect can leave the prefix (the final URL would have to stay under it, see
+   for example `https://api.github.com/repos/<owner>/<repo>/pulls/`. That closes the first row above. With a second
+   criterion on the same label requiring the objective's id, it closes the second too, short of the contributor's own
+   earlier pull request; the two criteria are tested in `app/test/checks.test.ts`, the prefix does not exist yet. #14
+   was closed because a redirect can leave the prefix (the final URL would have to stay under it, see
    [#25](https://github.com/MultiAgency/extents/issues/25)) and because of how new fields are versioned
    ([#26](https://github.com/MultiAgency/extents/issues/26)).
 2. **A dedicated check kind for pull requests.** The evaluator asks the forge's API itself, instead of reading a page the

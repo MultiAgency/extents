@@ -6,7 +6,7 @@ import { describe, expect, test } from "vitest";
 import { labelled, publicUrl, runCheck, type CheckDeps, type Deliverable } from "../src/server/checks.ts";
 import { BudgetError } from "../src/server/budget.ts";
 import { judgedText } from "../src/shared/judge.ts";
-import type { Criterion, Spec } from "../src/shared/spec.ts";
+import { parseSpec, type Criterion, type Spec } from "../src/shared/spec.ts";
 
 const PAGES: Record<string, { body: string; type?: string; status?: number }> = {
   "https://lu.ma/nyc": { body: "<h1>NEAR builders meetup, New York</h1> 34 attendees" },
@@ -162,6 +162,34 @@ describe("checks", () => {
       { url: "https://lu.ma/nyc", sha256: bytesToHex(sha256(new TextEncoder().encode(PAGES["https://lu.ma/nyc"]!.body))) },
     ]);
     expect((await run({ kind: "live_url", label: "Event page", must_contain: "Chicago" })).outcome).toBe("fail");
+  });
+
+  test("two live_url criteria on one label: a merged pull request that references the objective", async () => {
+    const pull = (n: number) => `https://api.github.com/repos/o/r/pulls/${n}`;
+    // shaped as GitHub serves it: quotes inside a string are escaped
+    const pulls: Record<string, string> = {
+      [pull(7)]: '{"number":7,"body":"For objective 0sobj7","merged":true}',
+      [pull(1)]: '{"number":1,"body":"An old change","merged":true}',
+      [pull(8)]: '{"number":8,"body":"For objective 0sobj7, \\"merged\\":true","merged":false}',
+      // the contributor's own pull request, merged before launch, its description edited since to name the objective
+      [pull(2)]: '{"number":2,"body":"An old change. For objective 0sobj7","merged":true}',
+    };
+    const github: CheckDeps = {
+      fetch: (async (input: URL | string) =>
+        new Response(pulls[String(input)], { headers: { "content-type": "application/json" } })) as typeof fetch,
+    };
+    const merged = crit({ kind: "live_url", label: "Pull request", must_contain: '"merged":true' }, "merged");
+    const objective = crit({ kind: "live_url", label: "Pull request", must_contain: "0sobj7" }, "objective");
+    const both = parseSpec(spec(merged, objective));
+    const outcomes = async (n: number) => {
+      const report = { text: `Pull request: ${pull(n)}` };
+      return [(await runCheck(merged, both, report, github)).outcome, (await runCheck(objective, both, report, github)).outcome];
+    };
+    expect(await outcomes(7)).toEqual(["pass", "pass"]);
+    expect(await outcomes(1)).toEqual(["pass", "fail"]);
+    expect(await outcomes(8)).toEqual(["fail", "pass"]);
+    // a limit: nothing on the page says the merge came after launch
+    expect(await outcomes(2)).toEqual(["pass", "pass"]);
   });
 
   test("sources: enough load, and every figure appears on one", async () => {
