@@ -53,7 +53,7 @@ the call to sign.
 After `ob_deliver(params, {hash: sha256(UTF8(report))})` succeeds and finalizes, publish
 `deliverable = {text: report, delivery_tx: <transaction hash>, delivery_signer: <transaction signer>}` with FastData.
 The evaluator verifies the objective's successful `delivered` event in that finalized transaction. A backup publishes
-as its own account. A slot with no report, no proof, or text that doesn't match its delivery hash is listed as `missing`; a proof the chain can't confirm yet stops evaluation until it can. Later replacement text is not accepted.
+as its own account. A slot with no report, no proof, a proof that isn't a valid transaction hash or names another transaction or signer, or text that doesn't match its delivery hash is listed as `missing`, and so is one whose transaction the chain still doesn't know 10 minutes after an evaluation first found it unknown. A proof the chain can't confirm yet for any other reason (not final, or the RPC unavailable) stops evaluation until it can. Later replacement text is not accepted.
 
 ## Cancel or release as the sponsor
 

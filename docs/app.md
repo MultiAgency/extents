@@ -195,4 +195,8 @@ The server fetches that finalized transaction and accepts a hash only from a suc
 objective, whose own `delivered` event names the slot's actual holder. A signed intent may have a relayer as
 `delivery_signer`; the event still names the contributor. A contributor can republish proof if the first publication
 failed. If FastData replaces a report, text that doesn't match the proven hash is refused, and the original report can be
-republished with its original proof.
+republished with its original proof. A proof that isn't a valid transaction hash, or that names another transaction or
+signer, leaves the slot missing. A transaction
+the chain does not know stops the evaluation, like one not yet final; if the chain still does not know it 10 minutes
+after an evaluation first found it so, the slot is missing. Only a proof the chain can't confirm yet for another reason,
+such as an unavailable RPC, keeps stopping it.

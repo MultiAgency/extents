@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readDeliverables } from "../src/server/fastdata.ts";
+import { DeliveryProofError, readDeliverables } from "../src/server/fastdata.ts";
 import { reportHash } from "../src/shared/review.ts";
 import { evidenceArchive } from "../src/server/archive.ts";
 import { codeHashMatches } from "../src/server/release.ts";
@@ -13,17 +13,27 @@ const objective = "objective.testnet",
   contributor = "alice.testnet",
   text = "Committed report",
   tx = "1".repeat(44);
-function service({ report = text, executor = objective, status = { SuccessValue: "" } as unknown, final = "FINAL", proof = true } = {}) {
+function service({
+  report = text,
+  executor = objective,
+  status = { SuccessValue: "" } as unknown,
+  final = "FINAL",
+  proof = true,
+  rpc = undefined as Response | undefined,
+  hash = tx,
+  signer = contributor,
+} = {}) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_url: string, init: RequestInit) => {
       const request = JSON.parse(init.body as string);
       if (request.method === "tx") {
         expect(request.params.wait_until).toBe("FINAL");
+        if (rpc) return rpc;
         return Response.json({
           result: {
             final_execution_status: final,
-            transaction: { hash: tx, signer_id: contributor },
+            transaction: { hash, signer_id: signer },
             receipts_outcome: [
               {
                 outcome: {
@@ -71,6 +81,28 @@ test.each([
 ])("changed, forged, failed, provisional and unproved deliveries are refused: %j", async (options) => {
   service(options);
   await expect(readDeliverables(objective, [contributor])).rejects.toThrow();
+});
+
+const rpcError = (name: string, kind = "HANDLER_ERROR") =>
+  Response.json({ jsonrpc: "2.0", id: "delivery", error: { name: kind, cause: { name } } });
+
+test.each([
+  // a transaction the chain does not know may be one never sent, so the evaluator's retry rule times it
+  { case: "an unknown transaction", options: { rpc: rpcError("UNKNOWN_TRANSACTION") }, kind: "unknown" },
+  // a final transaction that is another one, or another signer's, never becomes this proof
+  { case: "another transaction", options: { hash: "2".repeat(44) }, kind: "missing" },
+  { case: "another signer", options: { signer: "relayer.testnet" }, kind: "missing" },
+  // a hash of the right characters but not 32 bytes, which the RPC refuses to parse
+  { case: "a hash the RPC can't parse", options: { rpc: rpcError("PARSE_ERROR", "REQUEST_VALIDATION_ERROR") }, kind: "missing" },
+  // what clears on retry stops only this run
+  { case: "a transaction not yet final", options: { final: "EXECUTED_OPTIMISTIC" }, kind: "unverified" },
+  { case: "an RPC that times out", options: { rpc: rpcError("TIMEOUT_ERROR") }, kind: "unverified" },
+  { case: "an RPC answering 503", options: { rpc: new Response("unavailable", { status: 503 }) }, kind: "unverified" },
+])("$case is a proof that is $kind", async ({ options, kind }) => {
+  service(options);
+  const error = await readDeliverables(objective, [contributor]).catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(DeliveryProofError);
+  expect((error as DeliveryProofError).kind).toBe(kind);
 });
 
 test("missing contributors are not silently omitted", async () => {

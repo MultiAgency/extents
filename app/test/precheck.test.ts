@@ -8,6 +8,8 @@ import { createApp } from "../src/server/app.ts";
 import { ArchiveFullError } from "../src/server/archive.ts";
 import { evidenceFetch } from "../src/server/evidence-fetch.ts";
 import type { CheckDeps } from "../src/server/checks.ts";
+import { DeliveryProofError } from "../src/server/fastdata.ts";
+import type { CheckRunDeps } from "../src/server/precheck.ts";
 import type { Chain } from "../src/server/tools.ts";
 import { reportHash } from "../src/shared/review.ts";
 import type { Delivered } from "../src/shared/review.ts";
@@ -35,6 +37,8 @@ function client(
   opts: {
     state?: unknown;
     delivered?: Delivered[];
+    /** Reads each slot's report in place of `delivered`, to stand in for a proof the chain refuses. */
+    readReports?: CheckRunDeps["delivered"];
     judge?: CheckDeps["judge"];
     archive?: CheckDeps["archive"];
     fetch?: typeof fetch;
@@ -56,7 +60,7 @@ function client(
       fetch: opts.fetch ?? ((async () => new Response("<h1>Meetup in New York</h1>")) as never),
       judge: opts.judge ?? (async () => ({ answer: false, detail: "no venue or costs" })),
     },
-    delivered: async (_, contributors) => (opts.delivered ?? []).filter((d) => contributors.includes(d.contributor)),
+    delivered: opts.readReports ?? (async (_, contributors) => (opts.delivered ?? []).filter((d) => contributors.includes(d.contributor))),
     archiveObjectiveBytes: opts.archiveObjectiveBytes,
   });
   return new HttpAgent({
@@ -258,6 +262,99 @@ describe("/api/evaluate", () => {
   test("a report that isn't its delivery's exact text stops the run", async () => {
     const changed = await evaluate({ delivered: 1 }, [{ ...report(first), delivery_hash: "0".repeat(64) }]);
     expect(changed.error).toMatch(/exact one its on-chain delivery committed/);
+  });
+
+  describe("a delivery proof the chain refuses", () => {
+    const failing = report(first, "Event page: https://lu.ma/nyc\nAttendees: 5");
+    /** Both slots delivered on chain; the first's report is `firstReport`, the second's proof answers as `proof` says. */
+    const proofs = (firstReport: Delivered) => {
+      const answer = { proof: "unknown" as DeliveryProofError["kind"] | "confirmed" };
+      const agent = client(
+        { params: p, spec: SPEC },
+        {
+          state: { delivered: 3 },
+          path: "/api/evaluate",
+          judge: async () => ({ answer: true, detail: "x", call: { ...CALL, answer: true } }),
+          readReports: async (_, [contributor]) => {
+            if (contributor === first) return [firstReport];
+            if (answer.proof === "confirmed") return [report(second)];
+            throw new DeliveryProofError(`the proof is ${answer.proof}.`, answer.proof);
+          },
+        },
+      );
+      return { answer, run: () => check(agent, { objective: OBJECTIVE }) };
+    };
+    const at = (time: string) => vi.setSystemTime(new Date(`2026-11-20T${time}:00Z`));
+
+    test("an unknown transaction stops the run, then counts its slot as missing once it outlasts the retry window", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const { run } = proofs(failing);
+        at("10:00");
+        const firstRun = await run();
+        expect(firstRun.error).toMatch(/the proof is unknown\. Recorded/);
+        expect(firstRun.summary).toBeUndefined();
+
+        at("10:05");
+        expect((await run()).error).toMatch(/Still within the 10-minute retry window/);
+
+        at("10:11");
+        const later = await run();
+        expect(later.error).toBeUndefined();
+        expect(later.summary.missing).toEqual([second]);
+        expect(parseReview(later.summary.review, SPEC as never)).toMatchObject({
+          verdict: "failed",
+          deliverables: [{ contributor: first }],
+          missing: [second],
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    test("a transaction with another hash or signer counts its slot as missing at once", async () => {
+      const { answer, run } = proofs(failing);
+      answer.proof = "missing";
+      const r = await run();
+      expect(r.error).toBeUndefined();
+      expect(parseReview(r.summary.review, SPEC as never)).toMatchObject({ verdict: "failed", missing: [second] });
+    });
+
+    test("a proof the chain can't confirm yet stops every run, however long it lasts", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const { answer, run } = proofs(failing);
+        answer.proof = "unverified";
+        at("10:00");
+        expect((await run()).error).toBe("the proof is unverified.");
+        at("10:11");
+        const later = await run();
+        expect(later.error).toBe("the proof is unverified.");
+        expect(later.summary).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    test("a transaction the chain comes to know forgets its sighting", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        const { answer, run } = proofs(report(first));
+        at("10:00");
+        expect((await run()).error).toMatch(/Recorded/);
+
+        at("10:05");
+        answer.proof = "confirmed";
+        expect(parseReview((await run()).summary.review, SPEC as never).verdict).toBe("achieved");
+
+        // unknown again later: a fresh sighting, not one 11 minutes old
+        at("10:11");
+        answer.proof = "unknown";
+        expect((await run()).error).toMatch(/Recorded/);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   test("a contributor's unreachable host is recorded first, then fails once it outlasts the retry window", async () => {

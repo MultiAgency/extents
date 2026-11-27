@@ -49,14 +49,18 @@ type Row = z.infer<typeof pageSchema>["entries"][number];
 
 /**
  * Why a contributor's report can't be used: `missing` when no valid report is
- * published (none, a malformed proof, or text that doesn't match the hash on
- * chain), which a review may record as missing; `unverified` when the chain
- * couldn't confirm it just now, which only a later run can settle.
+ * published (none, a malformed proof or one the RPC can't parse, a
+ * transaction with another hash or signer, or text that doesn't match the
+ * hash on chain), which a review may
+ * record as missing; `unknown` when the chain does not know the transaction,
+ * which may be one not yet seen or one never sent, so the evaluator's retry
+ * rule decides; `unverified` when the chain couldn't confirm it just now,
+ * which only a later run can settle.
  */
 export class DeliveryProofError extends Error {
   constructor(
     message: string,
-    readonly kind: "missing" | "unverified",
+    readonly kind: "missing" | "unknown" | "unverified",
   ) {
     super(message);
   }
@@ -239,16 +243,27 @@ export async function readDeliverables(objective: string, contributors: string[]
       } catch {
         throw new DeliveryProofError("The delivery transaction could not be verified. Try again later.", "unverified");
       }
-      const outcome = response.result;
-      if (
-        response.error ||
-        outcome?.final_execution_status !== "FINAL" ||
-        outcome.transaction?.hash !== value.delivery_tx ||
-        outcome.transaction?.signer_id !== value.delivery_signer
-      )
+      const error = response.error as { name?: unknown; cause?: { name?: unknown } } | undefined;
+      // only the proof's hash and signer vary in this request, so one the RPC can't parse names no transaction
+      if (error?.name === "REQUEST_VALIDATION_ERROR")
         throw new DeliveryProofError(
-          "The delivery transaction is not finalized. Check its hash and signer, or try again later.",
-          "unverified",
+          `The delivery proof for ${contributor} is not a valid transaction hash and signer. Republish the exact delivery transaction and its signer.`,
+          "missing",
+        );
+      // the chain not knowing the transaction may never clear, unlike any other error, so the caller times it
+      if (error?.cause?.name === "UNKNOWN_TRANSACTION")
+        throw new DeliveryProofError(
+          `The chain does not know the delivery transaction for ${contributor}. Check its hash and signer, or try again later.`,
+          "unknown",
+        );
+      const outcome = response.result;
+      if (response.error || outcome?.final_execution_status !== "FINAL")
+        throw new DeliveryProofError("The delivery transaction is not finalized. Try again later.", "unverified");
+      // a final transaction that is another one, or another signer's, never becomes this proof
+      if (outcome.transaction?.hash !== value.delivery_tx || outcome.transaction?.signer_id !== value.delivery_signer)
+        throw new DeliveryProofError(
+          `The delivery proof for ${contributor} names another transaction or signer. Republish the exact delivery transaction and its signer.`,
+          "missing",
         );
       const hash = deliveryHash(outcome, objective, contributor);
       if (!hash || hash !== reportHash(value.text))

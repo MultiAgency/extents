@@ -35,7 +35,9 @@ export interface CheckRunDeps {
   signal?: AbortSignal;
   /**
    * When each criterion was first found unreachable on the contributor's side,
-   * by objective and criterion: the evaluator's memory for the retry rule.
+   * by objective and criterion, and each slot's delivery transaction unknown to
+   * the chain, by objective and contributor: the evaluator's memory for the
+   * retry rules.
    */
   unreachableSince?: Map<string, number>;
   /** Distinct evidence bytes each objective has asked the archive to keep, so one objective cannot fill it for all. */
@@ -76,6 +78,39 @@ function retryRule(objective: string, deps: CheckRunDeps): (r: CheckResult) => C
       outcome: "fail",
       detail: `${r.detail}; still unreachable ${Math.round((now - since) / 60_000)} minutes after it was first found so`,
     };
+  };
+}
+
+/**
+ * The retry rule for a delivery transaction the chain does not know: the first
+ * time it is recorded and stops the run, like any proof the chain can't confirm
+ * yet; a run at least `RETRY_MS` later that still finds it unknown counts the
+ * slot as missing. A slot whose proof is settled either way forgets the
+ * sighting. Without the evaluator's memory an unknown transaction always stops
+ * the run.
+ */
+function unknownProofRule(objective: string, deps: CheckRunDeps) {
+  const seen = deps.unreachableSince;
+  const now = (deps.clock ?? Date.now)();
+  // a criterion id has no colon, so this never meets a criterion's key
+  const key = (contributor: string) => `${objective}:delivery:${contributor}`;
+  return {
+    forget: (contributor: string) => void seen?.delete(key(contributor)),
+    /** The refusal that stops this run, or `undefined` once the slot counts as missing. */
+    settle: (contributor: string, e: DeliveryProofError): DeliveryProofError | undefined => {
+      if (!seen) return e;
+      const since = seen.get(key(contributor));
+      if (since === undefined) {
+        seen.set(key(contributor), now);
+        return new DeliveryProofError(
+          `${e.message} Recorded; if the chain still does not know it ${RETRY_MS / 60_000} minutes from now, the slot counts as missing.`,
+          e.kind,
+        );
+      }
+      if (now - since < RETRY_MS)
+        return new DeliveryProofError(`${e.message} Still within the ${RETRY_MS / 60_000}-minute retry window.`, e.kind);
+      return undefined;
+    },
   };
 }
 
@@ -203,15 +238,27 @@ export function runEvaluation(input: RunAgentInput, deps: CheckRunDeps): AsyncGe
     const objective = accountId.parse((input.forwardedProps as { objective?: unknown } | undefined)?.objective);
     const { params, spec, state, evaluator_dao } = await published(deps.chain, objective, deps.signal);
     const onChain = deliveredBy(params, state);
-    // each delivered slot's report on its own: an absent report is missing, an unconfirmable one stops the run
+    // each delivered slot's report on its own: an absent report is missing, an unconfirmable one stops the run, and a
+    // transaction the chain does not know stops it until the retry rule counts the slot as missing
     const reports = await abortable(deps.signal, () =>
       Promise.allSettled(onChain.map((contributor) => deps.delivered(objective, [contributor], deps.signal))),
     );
+    const unknownProof = unknownProofRule(objective, deps);
     const delivered: Delivered[] = [];
-    for (const r of reports) {
-      if (r.status === "fulfilled") delivered.push(...r.value);
-      else if (!(r.reason instanceof DeliveryProofError && r.reason.kind === "missing")) throw r.reason;
+    // every slot is settled before anything stops the run, so each unknown transaction's sighting is recorded
+    const stops: unknown[] = [];
+    for (const [i, r] of reports.entries()) {
+      const contributor = onChain[i]!;
+      if (r.status === "fulfilled") {
+        unknownProof.forget(contributor);
+        delivered.push(...r.value);
+      } else if (r.reason instanceof DeliveryProofError && r.reason.kind === "missing") unknownProof.forget(contributor);
+      else if (r.reason instanceof DeliveryProofError && r.reason.kind === "unknown") {
+        const refusal = unknownProof.settle(contributor, r.reason);
+        if (refusal) stops.push(refusal);
+      } else stops.push(r.reason);
     }
+    if (stops.length) throw stops[0];
     try {
       verifyReports(onChain, delivered);
     } catch (e) {
