@@ -222,6 +222,37 @@ describe("checks", () => {
     expect(r).toMatchObject({ outcome: "fail", detail: "1 of the needed 2 cited links load" });
   });
 
+  test("media: the same bytes at several addresses count once, and each is recorded once", async () => {
+    const media = crit({ kind: "media", kinds: ["image"], min: 3 });
+    const fetched: string[] = [];
+    // one image behind every address
+    const one: CheckDeps = {
+      fetch: (async (input: URL | string) => {
+        fetched.push(String(input));
+        return new Response("one image", { headers: { "content-type": "image/png" } });
+      }) as typeof fetch,
+    };
+    const text = "https://example.org/a.png?1 https://example.org/a.png?2 http://mirror.example.org/a.png";
+    const r = await runCheck(media, spec(media), { text }, one);
+    expect(r).toMatchObject({ outcome: "fail", detail: "1 of the needed 3 image items load" });
+    expect(r.evidence).toEqual([
+      { url: "http://mirror.example.org/a.png", sha256: bytesToHex(sha256(new TextEncoder().encode("one image"))) },
+    ]);
+    expect(fetched).toHaveLength(3);
+  });
+
+  test("media: distinct items at addresses that differ only by query still count apart", async () => {
+    const media = crit({ kind: "media", kinds: ["image"], min: 3 });
+    // a body of its own per address
+    const apart: CheckDeps = {
+      fetch: (async (input: URL | string) => new Response(String(input), { headers: { "content-type": "image/png" } })) as typeof fetch,
+    };
+    const text = "https://example.org/a.png?1 https://example.org/a.png?2 https://example.org/a.png?3";
+    const r = await runCheck(media, spec(media), { text }, apart);
+    expect(r).toMatchObject({ outcome: "pass", detail: "3 image items load" });
+    expect(r.evidence).toHaveLength(3);
+  });
+
   test.each([
     ["3e1", "Only 3 people attended.", "fail"],
     ["30", "There were 130 attendees.", "fail"],
