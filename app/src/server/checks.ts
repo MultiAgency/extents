@@ -338,9 +338,12 @@ export async function runCheck(c: Criterion, spec: Spec, d: Deliverable, deps: C
         .slice(0, MAX_FETCHES);
       const fetched = await Promise.all(candidates.map((url) => load(deps, url)));
       const unavailable = fetched.some((p) => typeof p !== "string" && "unavailable" in p);
-      const loaded = fetched.filter(
-        (p): p is Fetched => typeof p !== "string" && "ok" in p && p.ok && check.kinds.some((k) => p.contentType.startsWith(`${k}/`)),
-      );
+      // an item counts once: the same bytes behind two addresses (a query, a mirror, http and https) are one item
+      const loaded = fetched
+        .filter(
+          (p): p is Fetched => typeof p !== "string" && "ok" in p && p.ok && check.kinds.some((k) => p.contentType.startsWith(`${k}/`)),
+        )
+        .filter((p, i, all) => all.findIndex((q) => q.sha256 === p.sha256) === i);
       const evidence = loaded.map((p) => ({ url: p.url, sha256: p.sha256 }));
       return loaded.length >= check.min
         ? result(c, "pass", `${loaded.length} ${check.kinds.join(" or ")} item${loaded.length === 1 ? "" : "s"} load`, evidence)
